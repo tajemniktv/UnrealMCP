@@ -1,13 +1,14 @@
 #pragma once
 
-#include "Containers/Ticker.h"
 #include "CoreMinimal.h"
+#include "Containers/Ticker.h"
 #include "Dom/JsonObject.h"
 #include "EditorSubsystem.h"
 #include "HAL/CriticalSection.h"
 #include "Templates/SharedPointer.h"
 #include "Engine/DataAsset.h"
 #include "McpAutomationBridgeSubsystem.generated.h"
+
 
 // Define MCP_HAS_CONTROLRIG_FACTORY based on UE version
 // ControlRigBlueprintFactory is available in all UE 5.x versions

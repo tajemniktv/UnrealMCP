@@ -62,6 +62,9 @@ public class McpAutomationBridge : ModuleRules
         
         Console.WriteLine(string.Format("McpAutomationBridge: Detected {0}MB available memory (of {1}MB total)", AvailableMemoryMB, TotalMemoryMB));
         
+
+        // EnhancedInput and several editor modules now require C++20.
+        CppStandard = CppStandardVersion.Cpp20;
         // Disable PCH to prevent virtual memory exhaustion
         PCHUsage = PCHUsageMode.NoPCHs;
         
@@ -142,15 +145,10 @@ PublicDependencyModuleNames.AddRange(new string[]
             TryAddConditionalModule(Target, EngineDir, "MetasoundFrontend", "MetasoundFrontend");
             TryAddConditionalModule(Target, EngineDir, "MetasoundEditor", "MetasoundEditor");
 
-            // Phase 16: AI Systems - StateTree, SmartObjects, MassAI (conditional based on plugin availability)
-            // These modules may not be available in all UE versions or plugin configurations
-            TryAddConditionalModule(Target, EngineDir, "StateTreeModule", "StateTreeModule");
-            TryAddConditionalModule(Target, EngineDir, "StateTreeEditorModule", "StateTreeEditorModule");
-            TryAddConditionalModule(Target, EngineDir, "SmartObjectsModule", "SmartObjectsModule");
-            TryAddConditionalModule(Target, EngineDir, "SmartObjectsEditorModule", "SmartObjectsEditorModule");
-            TryAddConditionalModule(Target, EngineDir, "MassEntity", "MassEntity");
-            TryAddConditionalModule(Target, EngineDir, "MassSpawner", "MassSpawner");
-            TryAddConditionalModule(Target, EngineDir, "MassActors", "MassActors");
+            // Phase 16: AI systems
+            // Do not auto-add StateTree / SmartObjects / Mass modules via filesystem probing.
+            // In custom engine installs their source trees may exist while the plugin modules are not
+            // enabled for this target, which causes missing generated header failures.
 
             // Phase 22: Voice Chat and Online Subsystem (conditional - for sessions handlers)
             // VoiceChat module is from the VoiceChat plugin
@@ -463,3 +461,4 @@ PublicDependencyModuleNames.AddRange(new string[]
         catch { /* Module not available - this is expected for optional modules */ }
     }
 }
+
