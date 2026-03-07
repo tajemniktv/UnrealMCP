@@ -98,7 +98,7 @@
     },
     {
       "Name": "GameplayAbilities",
-      "Enabled": true,
+      "Enabled": false,
       "Optional": true
     },
     {

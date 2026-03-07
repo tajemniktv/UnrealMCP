@@ -39,8 +39,12 @@ DEFINE_LOG_CATEGORY_STATIC(LogMcpGASHandlers, Log, All);
 #include "EdGraphSchema_K2.h"
 #endif
 
+#ifndef MCP_WITH_GAMEPLAYABILITIES
+#define MCP_WITH_GAMEPLAYABILITIES 0
+#endif
+
 // GAS module check
-#if __has_include("AbilitySystemComponent.h")
+#if MCP_WITH_GAMEPLAYABILITIES && __has_include("AbilitySystemComponent.h")
 #define MCP_HAS_GAS 1
 #include "AbilitySystemComponent.h"
 #include "AttributeSet.h"

@@ -116,7 +116,6 @@ PublicDependencyModuleNames.AddRange(new string[]
                 "Kismet","KismetCompiler","AssetRegistry","AssetTools","SourceControl",
                 "AudioEditor", "DataValidation", "NiagaraEditor",
                 // Phase 24: GAS, Audio, and missing module dependencies
-                "GameplayAbilities",  // Required for UAttributeSet, UGameplayEffect, UGameplayAbility, etc.
                 "AudioMixer"          // Required for FAudioEQEffect::ClampValues
             });
 
@@ -160,6 +159,7 @@ PublicDependencyModuleNames.AddRange(new string[]
             // Ensure editor builds expose full Blueprint graph editing APIs.
             PublicDefinitions.Add("MCP_HAS_K2NODE_HEADERS=1");
             PublicDefinitions.Add("MCP_HAS_EDGRAPH_SCHEMA_K2=1");
+            PublicDefinitions.Add("MCP_WITH_GAMEPLAYABILITIES=0");
 
             // 1. SubobjectData Detection
             // UE 5.7 renamed/moved this to SubobjectDataInterface in Editor/
@@ -222,6 +222,7 @@ PublicDependencyModuleNames.AddRange(new string[]
             PublicDefinitions.Add("MCP_HAS_EDGRAPH_SCHEMA_K2=0");
             PublicDefinitions.Add("MCP_HAS_SUBOBJECT_DATA_SUBSYSTEM=0");
             PublicDefinitions.Add("MCP_HAS_WP_FOR_EACH_DATALAYER=0");
+            PublicDefinitions.Add("MCP_WITH_GAMEPLAYABILITIES=0");
         }
     }
 
