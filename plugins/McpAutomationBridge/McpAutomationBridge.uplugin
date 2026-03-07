@@ -20,7 +20,11 @@
       "Name": "McpAutomationBridge",
       "Type": "Editor",
       "LoadingPhase": "Default",
-      "PlatformAllowList": ["Win64", "Mac", "Linux"]
+      "PlatformAllowList": [
+        "Win64",
+        "Mac",
+        "Linux"
+      ]
     }
   ],
   "Plugins": [
@@ -104,17 +108,17 @@
     },
     {
       "Name": "StateTree",
-      "Enabled": true,
+      "Enabled": false,
       "Optional": true
     },
     {
       "Name": "SmartObjects",
-      "Enabled": true,
+      "Enabled": false,
       "Optional": true
     },
     {
       "Name": "MassGameplay",
-      "Enabled": true,
+      "Enabled": false,
       "Optional": true
     },
     {
