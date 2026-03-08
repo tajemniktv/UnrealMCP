@@ -1,10 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { BaseTool } from '../tools/base-tool.js';
 import { IAssetResources } from '../types/tool-interfaces.js';
 import { coerceString } from '../utils/result-helpers.js';
 import { AutomationResponse } from '../types/automation-responses.js';
 import { Logger } from '../utils/logger.js';
+import { normalizeMountedAssetPath } from '../utils/validation.js';
 
 const log = new Logger('AssetResources');
+const DEFAULT_MOUNTED_ROOTS = ['/Game', '/Engine', '/SML', '/TajsGraph'];
 
 export class AssetResources extends BaseTool implements IAssetResources {
   // Simple in-memory cache for asset listing
@@ -21,18 +25,40 @@ export class AssetResources extends BaseTool implements IAssetResources {
     try {
       if (!dir || typeof dir !== 'string') return '/Game';
       let d = dir.replace(/\\/g, '/');
-      if (!d.startsWith('/')) d = '/' + d;
       if (d.toLowerCase().startsWith('/content')) {
         d = '/Game' + d.substring('/Content'.length);
       }
-      // Collapse multiple slashes
-      d = d.replace(/\/+/g, '/');
-      // Remove trailing slash except root
+      d = normalizeMountedAssetPath(d);
       if (d.length > 1) d = d.replace(/\/$/, '');
       return d;
     } catch {
       return '/Game';
     }
+  }
+
+  getDefaultRoots(): string[] {
+    const roots = new Set(DEFAULT_MOUNTED_ROOTS);
+    const candidateBases = [
+      path.resolve(process.cwd(), '..', 'Mods'),
+      path.resolve(process.cwd(), '..', 'Plugins')
+    ];
+
+    for (const baseDir of candidateBases) {
+      try {
+        if (!fs.existsSync(baseDir)) continue;
+        for (const entry of fs.readdirSync(baseDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const pluginFile = path.join(baseDir, entry.name, `${entry.name}.uplugin`);
+          if (fs.existsSync(pluginFile)) {
+            roots.add(`/${entry.name}`);
+          }
+        }
+      } catch {
+        // Best-effort discovery only.
+      }
+    }
+
+    return Array.from(roots);
   }
 
   clearCache(dir?: string) {

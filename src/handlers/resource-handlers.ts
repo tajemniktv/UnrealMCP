@@ -28,12 +28,16 @@ export class ResourceHandler {
         if (!ok) {
           return { contents: [{ uri, mimeType: 'text/plain', text: 'Unreal Engine not connected (after 3 attempts).' }] };
         }
-        const list = await this.assetResources.list('/Game', true);
+        const roots = this.assetResources.getDefaultRoots();
+        const listings = await Promise.all(roots.map(async (root) => ({
+          root,
+          listing: await this.assetResources.list(root, true)
+        })));
         return {
           contents: [{
             uri,
             mimeType: 'application/json',
-            text: JSON.stringify(list, null, 2)
+            text: JSON.stringify({ mountedRoots: roots, roots: listings }, null, 2)
           }]
         };
       }

@@ -35,15 +35,11 @@ export function validateSecurityPatterns(args: Record<string, unknown>): string 
       }
       
       // Additional check for paths starting with / (could be absolute system paths)
-      // Allow /Game/, /Engine/, /Script/, /Temp/ as they are UE paths
-      // Also allow exact matches like /Game, /Engine (without trailing slash)
+      // Allow any Unreal mounted root like /Game/... or /TajsGraph/...
       if (key.toLowerCase().includes('path') && value.startsWith('/')) {
-        const allowedPrefixes = ['/Game/', '/Engine/', '/Script/', '/Temp/'];
-        const exactAllowed = ['/Game', '/Engine', '/Script', '/Temp'];
-        const isAllowed = allowedPrefixes.some(prefix => value.startsWith(prefix)) ||
-                          exactAllowed.includes(value);
+        const isAllowed = /^\/[A-Za-z_][A-Za-z0-9_]*(?:\/|$)/.test(value);
         if (!isAllowed) {
-          return `Security violation: '${key}' uses unauthorized absolute path. Only /Game/, /Engine/, /Script/, and /Temp/ paths are allowed.`;
+          return `Security violation: '${key}' uses an unauthorized absolute path. Only Unreal package roots like /Game/... or /PluginName/... are allowed.`;
         }
       }
     }

@@ -2,6 +2,7 @@ import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, BlueprintArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest } from './common-handlers.js';
+import { normalizeMountedAssetPath } from '../../utils/validation.js';
 
 
 /**
@@ -10,13 +11,7 @@ import { executeAutomationRequest } from './common-handlers.js';
  */
 function normalizeBlueprintPath(path: string | undefined): string | undefined {
   if (!path || typeof path !== 'string') return path;
-  // Convert backslashes to forward slashes
-  let normalized = path.replace(/\\/g, '/');
-  // Collapse double slashes
-  while (normalized.includes('//')) {
-    normalized = normalized.replace(/\/\//g, '/');
-  }
-  return normalized;
+  return normalizeMountedAssetPath(path);
 }
 
 function hasBlueprintPathTraversal(path: string | undefined): boolean {

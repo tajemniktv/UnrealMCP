@@ -48,54 +48,10 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
     return true;
   }
 
-  UObject *RootObject = nullptr;
-#if WITH_EDITOR
-  // CRITICAL FIX: Handle component paths in "ActorName.ComponentName" format
-  // This resolves paths like "TestActor.StaticMeshComponent0" to the actual component object
-  if (ObjectPath.Contains(TEXT(".")) && !ObjectPath.StartsWith(TEXT("/")))
-  {
-    FString ActorName = ObjectPath.Left(ObjectPath.Find(TEXT(".")));
-    FString ComponentName = ObjectPath.Right(ObjectPath.Len() - ActorName.Len() - 1);
-    
-    if (!ActorName.IsEmpty() && !ComponentName.IsEmpty())
-    {
-      // Try to find the actor first
-      if (AActor *Actor = FindActorByName(ActorName))
-      {
-        // Find the component on the actor using fuzzy name matching
-        if (UActorComponent *Comp = FindComponentByName(Actor, ComponentName))
-        {
-          RootObject = Comp;
-          // Normalize the path for downstream error messages
-          ObjectPath = Comp->GetPathName();
-        }
-      }
-    }
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
+  if (RootObject) {
+    ObjectPath = RootObject->GetPathName();
   }
-  
-  if (!RootObject) {
-    if (AActor *FoundActor = FindActorByName(ObjectPath)) {
-      RootObject = FoundActor;
-      // Normalize for downstream error messages / responses
-      ObjectPath = FoundActor->GetPathName();
-    }
-  }
-  if (!RootObject && ObjectPath.StartsWith(TEXT("/Game/"))) {
-    FString PackagePath = ObjectPath;
-    if (PackagePath.Contains(TEXT("."))) {
-      PackagePath = PackagePath.Left(PackagePath.Find(TEXT(".")));
-    }
-    UPackage* LoadedPackage = LoadPackage(nullptr, *PackagePath, LOAD_None);
-    if (LoadedPackage) {
-      RootObject = FindObject<UObject>(LoadedPackage, *ObjectPath);
-      if (!RootObject) {
-        RootObject = LoadedPackage;
-      }
-    }
-  }
-#else
-  RootObject = FindObject<UObject>(nullptr, *ObjectPath);
-#endif
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -353,54 +309,10 @@ bool UMcpAutomationBridgeSubsystem::HandleGetObjectProperty(
     return true;
   }
 
-  UObject *RootObject = nullptr;
-#if WITH_EDITOR
-  // CRITICAL FIX: Handle component paths in "ActorName.ComponentName" format
-  // This resolves paths like "TestActor.StaticMeshComponent0" to the actual component object
-  if (ObjectPath.Contains(TEXT(".")) && !ObjectPath.StartsWith(TEXT("/")))
-  {
-    FString ActorName = ObjectPath.Left(ObjectPath.Find(TEXT(".")));
-    FString ComponentName = ObjectPath.Right(ObjectPath.Len() - ActorName.Len() - 1);
-    
-    if (!ActorName.IsEmpty() && !ComponentName.IsEmpty())
-    {
-      // Try to find the actor first
-      if (AActor *Actor = FindActorByName(ActorName))
-      {
-        // Find the component on the actor using fuzzy name matching
-        if (UActorComponent *Comp = FindComponentByName(Actor, ComponentName))
-        {
-          RootObject = Comp;
-          // Normalize the path for downstream error messages
-          ObjectPath = Comp->GetPathName();
-        }
-      }
-    }
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
+  if (RootObject) {
+    ObjectPath = RootObject->GetPathName();
   }
-  
-  if (!RootObject) {
-    if (AActor *FoundActor = FindActorByName(ObjectPath)) {
-      RootObject = FoundActor;
-      // Normalize for downstream error messages / responses
-      ObjectPath = FoundActor->GetPathName();
-    }
-  }
-  if (!RootObject && ObjectPath.StartsWith(TEXT("/Game/"))) {
-    FString PackagePath = ObjectPath;
-    if (PackagePath.Contains(TEXT("."))) {
-      PackagePath = PackagePath.Left(PackagePath.Find(TEXT(".")));
-    }
-    UPackage* LoadedPackage = LoadPackage(nullptr, *PackagePath, LOAD_None);
-    if (LoadedPackage) {
-      RootObject = FindObject<UObject>(LoadedPackage, *ObjectPath);
-      if (!RootObject) {
-        RootObject = LoadedPackage;
-      }
-    }
-  }
-#else
-  RootObject = FindObject<UObject>(nullptr, *ObjectPath);
-#endif
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -570,7 +482,7 @@ bool UMcpAutomationBridgeSubsystem::HandleArrayAppend(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -720,7 +632,7 @@ bool UMcpAutomationBridgeSubsystem::HandleArrayRemove(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -827,7 +739,7 @@ bool UMcpAutomationBridgeSubsystem::HandleArrayClear(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -941,7 +853,7 @@ bool UMcpAutomationBridgeSubsystem::HandleArrayInsert(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -1087,7 +999,7 @@ bool UMcpAutomationBridgeSubsystem::HandleArrayGetElement(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -1218,7 +1130,7 @@ bool UMcpAutomationBridgeSubsystem::HandleArraySetElement(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -1369,7 +1281,7 @@ bool UMcpAutomationBridgeSubsystem::HandleMapSetValue(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -1545,7 +1457,7 @@ bool UMcpAutomationBridgeSubsystem::HandleMapGetValue(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -1682,7 +1594,7 @@ bool UMcpAutomationBridgeSubsystem::HandleMapRemoveKey(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -1804,7 +1716,7 @@ bool UMcpAutomationBridgeSubsystem::HandleMapHasKey(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -1911,7 +1823,7 @@ bool UMcpAutomationBridgeSubsystem::HandleMapGetKeys(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -2013,7 +1925,7 @@ bool UMcpAutomationBridgeSubsystem::HandleMapClear(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -2113,7 +2025,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetAdd(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -2256,7 +2168,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetRemove(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -2395,7 +2307,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetContains(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,
@@ -2519,7 +2431,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetClear(
     return true;
   }
 
-  UObject *RootObject = FindObject<UObject>(nullptr, *ObjectPath);
+  UObject *RootObject = ResolveObjectFromPath(ObjectPath);
   if (!RootObject) {
     SendAutomationError(
         RequestingSocket, RequestId,

@@ -16,6 +16,7 @@ import { ITools } from '../../types/tool-interfaces.js';
 import { cleanObject } from '../../utils/safe-json.js';
 import type { HandlerArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest } from './common-handlers.js';
+import { normalizeMountedAssetPath } from '../../utils/validation.js';
 
 function getTimeoutMs(): number {
   const envDefault = Number(process.env.MCP_AUTOMATION_REQUEST_TIMEOUT_MS ?? '120000');
@@ -40,12 +41,7 @@ function normalizePathFields(args: Record<string, unknown>): Record<string, unkn
       if (normalized.startsWith('/Content/')) {
         normalized = '/Game/' + normalized.slice('/Content/'.length);
       }
-      // Allow /Script/ paths for built-in UE classes
-      // Allow plugin paths like /MyPlugin/Assets to pass through unchanged
-      if (!normalized.startsWith('/')) {
-        normalized = '/Game/' + normalized;
-      }
-      result[field] = normalized;
+      result[field] = normalizeMountedAssetPath(normalized);
     }
   }
 

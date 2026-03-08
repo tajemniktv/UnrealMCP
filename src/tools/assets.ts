@@ -3,6 +3,7 @@ import { IAssetTools, StandardActionResponse, SourceControlState } from '../type
 import { Logger } from '../utils/logger.js';
 import { AssetResponse } from '../types/automation-responses.js';
 import { sanitizePath } from '../utils/path-security.js';
+import { normalizeMountedAssetPath } from '../utils/validation.js';
 import {
   DEFAULT_ASSET_OP_TIMEOUT_MS,
   EXTENDED_ASSET_OP_TIMEOUT_MS,
@@ -14,19 +15,7 @@ const log = new Logger('AssetTools');
 export class AssetTools extends BaseTool implements IAssetTools {
   private normalizeAssetPath(path: string): string {
     if (!path) return '';
-    let normalized = path.replace(/\\/g, '/').trim();
-
-    // Handle typical prefixes if missing leading slash
-    if (!normalized.startsWith('/')) {
-      if (normalized.startsWith('Game/')) normalized = '/' + normalized;
-      else if (normalized.startsWith('Engine/')) normalized = '/' + normalized;
-      else if (normalized.startsWith('Script/')) normalized = '/' + normalized;
-      // Default to Game content if no known prefix
-      else normalized = '/Game/' + normalized;
-    }
-
-    // Remove double slashes just in case
-    normalized = normalized.replace(/\/+/g, '/');
+    const normalized = normalizeMountedAssetPath(path.replace(/\\/g, '/').trim());
 
     // Security check
     return sanitizePath(normalized);

@@ -267,31 +267,81 @@ static inline FString SanitizeProjectRelativePath(const FString &InPath) {
     CleanPath = TEXT("/") + CleanPath;
   }
 
-  // Whitelist valid roots - MUST start with one of these
-  const bool bValidRoot = CleanPath.StartsWith(TEXT("/Game")) ||
-                          CleanPath.StartsWith(TEXT("/Engine")) ||
-                          CleanPath.StartsWith(TEXT("/Script"));
+  TArray<FString> Segments;
+  CleanPath.ParseIntoArray(Segments, TEXT("/"), true);
+  if (Segments.Num() == 0) {
+    return FString();
+  }
 
-  // Reject paths that start with / but don't have a valid root
-  // This catches paths like /etc/passwd or /invalid/path
-  if (!bValidRoot) {
-    // Check if it looks like a plugin path (e.g., /MyPlugin/Content/Asset)
-    // Plugin paths must have at least 3 segments: /PluginName/Content/...
-    TArray<FString> Segments;
-    CleanPath.ParseIntoArray(Segments, TEXT("/"), true);
-    const bool bLooksLikePluginPath = Segments.Num() >= 3 &&
-        Segments.Num() >= 2 && Segments[1].Equals(TEXT("Content"), ESearchCase::IgnoreCase);
-    
-    if (!bLooksLikePluginPath) {
-      UE_LOG(
-          LogMcpAutomationBridgeSubsystem, Warning,
-          TEXT("SanitizeProjectRelativePath: Rejected path without valid root (not /Game, /Engine, /Script, or valid plugin path): %s"),
-          *InPath);
-      return FString();
+  const FString& RootSegment = Segments[0];
+  const bool bLooksLikeMountedRoot =
+      !RootSegment.IsEmpty() &&
+      (FChar::IsAlpha(RootSegment[0]) || RootSegment[0] == TEXT('_'));
+  bool bRootCharsValid = bLooksLikeMountedRoot;
+  if (bRootCharsValid) {
+    for (int32 Index = 1; Index < RootSegment.Len(); ++Index) {
+      const TCHAR Char = RootSegment[Index];
+      if (!(FChar::IsAlnum(Char) || Char == TEXT('_'))) {
+        bRootCharsValid = false;
+        break;
+      }
     }
+  }
+  const bool bValidRoot = RootSegment.Equals(TEXT("Game"), ESearchCase::IgnoreCase) ||
+                          RootSegment.Equals(TEXT("Engine"), ESearchCase::IgnoreCase) ||
+                          RootSegment.Equals(TEXT("Script"), ESearchCase::IgnoreCase) ||
+                          RootSegment.Equals(TEXT("Temp"), ESearchCase::IgnoreCase) ||
+                          RootSegment.Equals(TEXT("Config"), ESearchCase::IgnoreCase) ||
+                          RootSegment.Equals(TEXT("Memory"), ESearchCase::IgnoreCase) ||
+                          RootSegment.Equals(TEXT("Transient"), ESearchCase::IgnoreCase) ||
+                          bRootCharsValid;
+
+  if (!bValidRoot) {
+    UE_LOG(
+        LogMcpAutomationBridgeSubsystem, Warning,
+        TEXT("SanitizeProjectRelativePath: Rejected path without valid Unreal mount root: %s"),
+        *InPath);
+    return FString();
   }
 
   return CleanPath;
+}
+
+static inline UObject* ResolveObjectFromPath(const FString& InObjectPath, bool bAllowActorLookup = true) {
+  FString ObjectPath = InObjectPath.TrimStartAndEnd();
+  if (ObjectPath.IsEmpty()) {
+    return nullptr;
+  }
+
+  (void)bAllowActorLookup;
+
+  if (UObject* ExistingObject = FindObject<UObject>(nullptr, *ObjectPath)) {
+    return ExistingObject;
+  }
+
+  if (UObject* LoadedObject = LoadObject<UObject>(nullptr, *ObjectPath)) {
+    return LoadedObject;
+  }
+
+  if (ObjectPath.StartsWith(TEXT("/"))) {
+    FString PackagePath = ObjectPath;
+    const int32 DotIndex = PackagePath.Find(TEXT("."));
+    if (DotIndex != INDEX_NONE) {
+      PackagePath = PackagePath.Left(DotIndex);
+    }
+
+    if (UPackage* LoadedPackage = LoadPackage(nullptr, *PackagePath, LOAD_None)) {
+      if (UObject* LoadedFromPackage = FindObject<UObject>(LoadedPackage, *ObjectPath)) {
+        return LoadedFromPackage;
+      }
+      if (UObject* ExistingFromAnyPackage = FindObject<UObject>(nullptr, *ObjectPath)) {
+        return ExistingFromAnyPackage;
+      }
+      return LoadedPackage;
+    }
+  }
+
+  return nullptr;
 }
 
 /**
@@ -642,13 +692,12 @@ static inline FString ResolveAssetPath(const FString &InputPath) {
     IAssetRegistry &AssetRegistry = AssetRegistryModule.Get();
 
     TArray<FAssetData> FoundAssets;
-    TArray<FAssetData> AllGameAssets;
+    TArray<FAssetData> AllAssets;
     
-    // Use GetAssetsByPath with recursive search - more efficient than GetAllAssets
-    AssetRegistry.GetAssetsByPath(FName(TEXT("/Game")), AllGameAssets, /*bRecursive=*/true);
+    AssetRegistry.GetAllAssets(AllAssets, true);
     
     // Filter by name match (case-insensitive)
-    for (const FAssetData &Asset : AllGameAssets) {
+    for (const FAssetData &Asset : AllAssets) {
       if (Asset.AssetName.ToString().Equals(ShortName, ESearchCase::IgnoreCase)) {
         FoundAssets.Add(Asset);
       }

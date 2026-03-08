@@ -43,6 +43,11 @@ function normalizeInspectAction(action: string): string {
   return INSPECT_ACTION_ALIASES[action] ?? action;
 }
 
+function looksLikeMountedObjectPath(value: string | undefined): boolean {
+  if (!value) return false;
+  return /^\/[A-Za-z_][A-Za-z0-9_]*(?:\/|$)/.test(value);
+}
+
 async function resolveComponentObjectPathFromArgs(args: HandlerArgs, tools: ITools): Promise<string> {
   const argsTyped = args as InspectArgs;
   const componentName = typeof argsTyped.componentName === 'string' ? argsTyped.componentName.trim() : '';
@@ -237,7 +242,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       }) as InspectResponse;
 
       // Smart Lookup: If property not found on the Actor, try to find it on components
-      if (!res.success && (res.error === 'PROPERTY_NOT_FOUND' || String(res.error).includes('not found'))) {
+      if (!res.success && !looksLikeMountedObjectPath(objectPath) && (res.error === 'PROPERTY_NOT_FOUND' || String(res.error).includes('not found'))) {
         const actorName = await resolveObjectPath(args, tools, { pathKeys: [], actorKeys: ['actorName', 'name', 'objectPath'] });
         if (actorName) {
           const triedPaths: string[] = [];

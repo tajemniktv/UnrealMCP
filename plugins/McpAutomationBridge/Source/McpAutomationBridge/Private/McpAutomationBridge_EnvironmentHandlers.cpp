@@ -1036,9 +1036,7 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     LowerSubAction.Equals(TEXT("restore_snapshot")) ||
     LowerSubAction.Equals(TEXT("export")) ||
     LowerSubAction.Equals(TEXT("delete_object")) ||
-    LowerSubAction.Equals(TEXT("get_bounding_box")) ||
-    LowerSubAction.Equals(TEXT("set_property")) ||
-    LowerSubAction.Equals(TEXT("get_property"));
+    LowerSubAction.Equals(TEXT("get_bounding_box"));
 
   // Delegate actor-related actions to the control_actor handler
   if (bIsActorAction) {

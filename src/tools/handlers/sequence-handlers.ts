@@ -1,6 +1,7 @@
 import { cleanObject } from '../../utils/safe-json.js';
 import { ITools, StandardActionResponse } from '../../types/tool-interfaces.js';
 import { executeAutomationRequest, requireNonEmptyString } from './common-handlers.js';
+import { normalizeMountedAssetPath } from '../../utils/validation.js';
 
 /** Extended response with common sequence fields */
 interface SequenceActionResponse extends StandardActionResponse {
@@ -19,7 +20,7 @@ const deletedSequences = new Set<string>();
 function normalizeSequencePath(path: unknown): string | undefined {
   if (typeof path !== 'string') return undefined;
   const trimmed = path.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  return trimmed.length > 0 ? normalizeMountedAssetPath(trimmed) : undefined;
 }
 
 function markSequenceCreated(path: unknown) {
@@ -54,7 +55,7 @@ export async function handleSequenceTools(action: string, args: Record<string, u
   switch (seqAction) {
     case 'create': {
       const name = requireNonEmptyString(args.name, 'name', 'Missing required parameter: name');
-      const basePath = typeof args.path === 'string' ? args.path.trim().replace(/\/$/, '') : '/Game/Sequences';
+      const basePath = typeof args.path === 'string' ? normalizeMountedAssetPath(args.path.trim().replace(/\/$/, '')) : '/Game/Sequences';
       
       const res = await executeAutomationRequest(tools, 'manage_sequence', {
         ...args,

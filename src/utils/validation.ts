@@ -37,6 +37,42 @@ const RESERVED_KEYWORDS = [
   'default', 'transient', 'native'
 ];
 
+const DEFAULT_MOUNTED_ROOT = '/Game';
+const BUILTIN_MOUNTED_ROOTS = new Set(['Game', 'Engine', 'Script', 'Temp', 'Config']);
+
+export function normalizeMountedAssetPath(path: string, defaultRoot: string = DEFAULT_MOUNTED_ROOT): string {
+  if (!path || typeof path !== 'string') {
+    return defaultRoot;
+  }
+
+  let normalized = path.trim().replace(/\\/g, '/');
+  while (normalized.includes('//')) {
+    normalized = normalized.replace(/\/\//g, '/');
+  }
+
+  if (normalized.length === 0) {
+    return defaultRoot;
+  }
+
+  if (!normalized.startsWith('/')) {
+    normalized = `/${normalized}`;
+  }
+
+  const segments = normalized.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return defaultRoot;
+  }
+
+  if (segments.some(segment => segment === '.' || segment === '..')) {
+    throw new Error('Path traversal (..) is not allowed');
+  }
+
+  const [root, ...rest] = segments;
+  const normalizedRoot = /^[A-Za-z_][A-Za-z0-9_]*$/.test(root) ? root : sanitizeAssetName(root);
+  const sanitizedSegments = rest.map(segment => sanitizeAssetName(segment));
+  return '/' + [normalizedRoot, ...sanitizedSegments].join('/');
+}
+
 /**
  * Sanitize a command argument to prevent injection attacks
  * @param arg The argument to sanitize
@@ -126,53 +162,12 @@ export function sanitizeAssetName(name: string): string {
  * @returns Sanitized path
  */
 export function sanitizePath(path: string): string {
-  if (!path || typeof path !== 'string') {
-    return '/Game';
+  const normalized = normalizeMountedAssetPath(path, DEFAULT_MOUNTED_ROOT);
+  const [, root] = normalized.split('/');
+  if (!BUILTIN_MOUNTED_ROOTS.has(root) && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(root)) {
+    throw new Error(`Invalid root segment '${root}'`);
   }
-
-  // Normalize slashes
-  path = path.replace(/\\/g, '/');
-
-  // Normalize double slashes (prevents engine crash from paths like /Game//Test)
-  while (path.includes('//')) {
-    path = path.replace(/\/\//g, '/');
-  }
-
-  // Ensure path starts with /
-  if (!path.startsWith('/')) {
-    path = `/${path}`;
-  }
-
-  // Split path into segments and sanitize each
-  let segments = path.split('/').filter(s => s.length > 0);
-
-  // Block path traversal attempts
-  if (segments.some(s => s === '..' || s === '.')) {
-    throw new Error('Path traversal (..) is not allowed');
-  }
-
-  if (segments.length === 0) {
-    return '/Game';
-  }
-
-  // Ensure the first segment is a valid root (Game, Engine, Script, Temp)
-  const ROOTS = new Set(['Game', 'Engine', 'Script', 'Temp']);
-  if (!ROOTS.has(segments[0])) {
-    segments = ['Game', ...segments];
-  }
-
-  const sanitizedSegments = segments.map(segment => {
-    // Don't sanitize Game, Engine, or other root folders
-    if (['Game', 'Engine', 'Script', 'Temp'].includes(segment)) {
-      return segment;
-    }
-    return sanitizeAssetName(segment);
-  });
-
-  // Reconstruct path
-  const sanitizedPath = '/' + sanitizedSegments.join('/');
-
-  return sanitizedPath;
+  return normalized;
 }
 
 /**

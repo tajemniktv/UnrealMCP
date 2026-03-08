@@ -1,3 +1,5 @@
+import { normalizeMountedAssetPath } from './validation.js';
+
 export function sanitizePath(path: string, allowedRoots: string[] = ['/Game', '/Engine']): string {
     if (!path || typeof path !== 'string') {
         throw new Error('Invalid path: must be a non-empty string');
@@ -8,29 +10,19 @@ export function sanitizePath(path: string, allowedRoots: string[] = ['/Game', '/
         throw new Error('Invalid path: cannot be empty');
     }
 
-    // Normalize separators
-    let normalized = trimmed.replace(/\\/g, '/');
-
-    // Normalize double slashes (prevents engine crash from paths like /Game//Test)
-    while (normalized.includes('//')) {
-        normalized = normalized.replace(/\/\//g, '/');
-    }
-
-    // Prevent directory traversal
-    if (normalized.includes('..')) {
-        throw new Error('Invalid path: directory traversal (..) is not allowed');
-    }
+    const normalized = normalizeMountedAssetPath(trimmed);
 
     // Ensure path starts with a valid root
     // We check case-insensitive for the root prefix to be user-friendly, 
     // but Unreal paths are typically case-insensitive anyway.
-    const isAllowed = allowedRoots.some(root =>
+    const normalizedAllowedRoots = allowedRoots.map(root => normalizeMountedAssetPath(root));
+    const isAllowed = normalizedAllowedRoots.some(root =>
         normalized.toLowerCase() === root.toLowerCase() ||
         normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`)
     );
 
-    if (!isAllowed) {
-        throw new Error(`Invalid path: must start with one of [${allowedRoots.join(', ')}]`);
+    if (!isAllowed && !/^\/[A-Za-z_][A-Za-z0-9_]*(?:\/|$)/.test(normalized)) {
+        throw new Error(`Invalid path: must start with one of [${normalizedAllowedRoots.join(', ')}] or another mounted Unreal root`);
     }
 
     // Basic character validation (Unreal strictness)

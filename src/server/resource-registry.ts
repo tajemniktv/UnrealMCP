@@ -24,7 +24,7 @@ export class ResourceRegistry {
         this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
             return {
                 resources: [
-                    { uri: 'ue://assets', name: 'Assets', description: 'Project assets', mimeType: 'application/json' },
+                    { uri: 'ue://assets', name: 'Assets', description: 'Project, engine, and mounted mod/plugin assets', mimeType: 'application/json' },
                     { uri: 'ue://actors', name: 'Actors', description: 'Actors in the current level', mimeType: 'application/json' },
                     { uri: 'ue://level', name: 'Current Level', description: 'Current level name and path', mimeType: 'application/json' },
                     { uri: 'ue://health', name: 'Health Status', description: 'Server health and performance metrics', mimeType: 'application/json' },
