@@ -3,6 +3,7 @@ import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, BlueprintArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest } from './common-handlers.js';
 import { normalizeMountedAssetPath } from '../../utils/validation.js';
+import { deriveBlueprintVariants, getMountRoot } from './modding-utils.js';
 
 
 /**
@@ -413,6 +414,36 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
         timeoutMs: argsRecord.timeoutMs as number | undefined
       }) as Record<string, unknown>;
       return cleanObject(res);
+    }
+    case 'get_mod_blueprint_summary': {
+      const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name || '';
+      if (!blueprintPath) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_BLUEPRINT_PATH',
+          message: 'blueprintPath, path, or name is required'
+        });
+      }
+
+      const variants = deriveBlueprintVariants(blueprintPath);
+      const assetInspection = await executeAutomationRequest(tools, 'inspect', {
+        action: 'inspect_object',
+        objectPath: variants.assetObjectPath,
+        detailed: true
+      }) as Record<string, unknown>;
+
+      const classInspection = await executeAutomationRequest(tools, 'inspect', {
+        action: 'inspect_class',
+        className: variants.generatedClassPath
+      }) as Record<string, unknown>;
+
+      return cleanObject({
+        success: true,
+        mountRoot: getMountRoot(String(variants.assetObjectPath)),
+        variants,
+        assetInspection,
+        classInspection
+      });
     }
     case 'connect_pins':
     case 'break_pin_links':

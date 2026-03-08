@@ -61,6 +61,31 @@ export class AssetResources extends BaseTool implements IAssetResources {
     return Array.from(roots);
   }
 
+  async getMountedRoots(): Promise<string[]> {
+    const fallbackRoots = this.getDefaultRoots();
+
+    if (!this.bridge.isConnected) {
+      return fallbackRoots;
+    }
+
+    try {
+      const response = await this.sendAutomationRequest<AutomationResponse>(
+        'inspect',
+        { action: 'get_mount_points' },
+        { timeoutMs: 15000 }
+      );
+
+      const result = (response?.result ?? response) as Record<string, unknown> | undefined;
+      const mountPoints = Array.isArray(result?.mountPoints)
+        ? result.mountPoints.filter((value): value is string => typeof value === 'string' && value.length > 0)
+        : [];
+
+      return Array.from(new Set([...fallbackRoots, ...mountPoints])).sort();
+    } catch {
+      return fallbackRoots;
+    }
+  }
+
   clearCache(dir?: string) {
     if (!dir) {
       this.cache.clear();

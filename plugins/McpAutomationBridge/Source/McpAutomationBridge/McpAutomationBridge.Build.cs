@@ -6,6 +6,8 @@ using System.Runtime.InteropServices;
 
 public class McpAutomationBridge : ModuleRules
 {
+    private const string SmlBridgeFlagFileName = "McpAutomationBridge.enable-sml";
+
     // ============================================================================
     // NATIVE WINDOWS API FOR ACTUAL MEMORY DETECTION
     // ============================================================================
@@ -65,10 +67,10 @@ public class McpAutomationBridge : ModuleRules
 
         // EnhancedInput and several editor modules now require C++20.
         CppStandard = CppStandardVersion.Cpp20;
-        // Disable PCH to prevent virtual memory exhaustion
+        // Default to the leaner build mode that avoids large-PCH memory failures.
         PCHUsage = PCHUsageMode.NoPCHs;
         
-        // Unity builds enabled - combine files for faster compilation
+        // Default to unity for the main bridge because the module is large.
         // Note: If you get "compiler out of heap space" errors, install BuildConfiguration.xml
         // from plugins/McpAutomationBridge/Config/BuildConfiguration.xml to %AppData%\Unreal Engine\UnrealBuildTool\
         bUseUnity = true;
@@ -134,6 +136,69 @@ PublicDependencyModuleNames.AddRange(new string[]
                 // Phase 24: Navigation volumes
                 "NavigationSystem"
             });
+
+            bool bHasSMLModule = false;
+            bool bEnableSMLBridge = string.Equals(
+                Environment.GetEnvironmentVariable("MCP_ENABLE_SML_BRIDGE"),
+                "1",
+                StringComparison.OrdinalIgnoreCase);
+            try
+            {
+                DirectoryInfo ProbeDir = new DirectoryInfo(ModuleDirectory);
+                DirectoryInfo ProjectRootDir = null;
+                while (ProbeDir != null)
+                {
+                    if (ProbeDir.GetFiles("*.uproject").Length > 0)
+                    {
+                        ProjectRootDir = ProbeDir;
+                    }
+
+                    if (Directory.Exists(Path.Combine(ProbeDir.FullName, "Mods", "SML", "Source", "SML")) ||
+                        Directory.Exists(Path.Combine(ProbeDir.FullName, "Plugins", "SML", "Source", "SML")))
+                    {
+                        bHasSMLModule = true;
+                    }
+
+                    ProbeDir = ProbeDir.Parent;
+                }
+
+                if (!bEnableSMLBridge)
+                {
+                    string PluginConfigFlag = Path.GetFullPath(Path.Combine(ModuleDirectory, "..", "..", SmlBridgeFlagFileName));
+                    string ProjectSavedFlag = ProjectRootDir != null ? Path.Combine(ProjectRootDir.FullName, "Saved", SmlBridgeFlagFileName) : null;
+                    string ProjectConfigFlag = ProjectRootDir != null ? Path.Combine(ProjectRootDir.FullName, "Config", SmlBridgeFlagFileName) : null;
+
+                    bEnableSMLBridge =
+                        File.Exists(PluginConfigFlag) ||
+                        (!string.IsNullOrEmpty(ProjectSavedFlag) && File.Exists(ProjectSavedFlag)) ||
+                        (!string.IsNullOrEmpty(ProjectConfigFlag) && File.Exists(ProjectConfigFlag));
+                }
+            }
+            catch
+            {
+                bHasSMLModule = false;
+            }
+            if (bHasSMLModule && bEnableSMLBridge)
+            {
+                PrivateDependencyModuleNames.Add("SML");
+                PublicDefinitions.Add("MCP_WITH_SML=1");
+                // The SML integration path is more sensitive to include order and
+                // unity-merging side effects than the core bridge. Use a safer
+                // per-file compile mode when it is explicitly enabled.
+                PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+                bUseUnity = false;
+                Console.WriteLine("McpAutomationBridge: SML module detected and enabled (non-unity + shared/explicit PCH mode)");
+            }
+            else
+            {
+                PublicDefinitions.Add("MCP_WITH_SML=0");
+                if (bHasSMLModule && !bEnableSMLBridge)
+                {
+                    Console.WriteLine(
+                        "McpAutomationBridge: SML module detected but bridge integration is disabled " +
+                        "(set MCP_ENABLE_SML_BRIDGE=1 or create Saved/" + SmlBridgeFlagFileName + " to enable)");
+                }
+            }
 
             // --- Feature Detection Logic ---
 
@@ -223,6 +288,7 @@ PublicDependencyModuleNames.AddRange(new string[]
             PublicDefinitions.Add("MCP_HAS_SUBOBJECT_DATA_SUBSYSTEM=0");
             PublicDefinitions.Add("MCP_HAS_WP_FOR_EACH_DATALAYER=0");
             PublicDefinitions.Add("MCP_WITH_GAMEPLAYABILITIES=0");
+            PublicDefinitions.Add("MCP_WITH_SML=0");
         }
     }
 

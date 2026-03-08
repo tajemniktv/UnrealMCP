@@ -10,16 +10,18 @@ import { commonSchemas } from './tool-definition-utils.js';
 export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_pipeline',
-    description: 'Build automation and pipeline control. Actions: run_ubt (compile targets), list_categories (show tool categories), get_status (bridge status). Routes to system_control internally.',
+    description: 'Build automation and pipeline control. Actions: run_ubt, get_mod_build_targets, build_mod, package_mod, list_categories, get_status. Routes to system_control internally where appropriate.',
     category: 'core',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['run_ubt', 'list_categories', 'get_status'], description: 'run_ubt: compile with UnrealBuildTool. list_categories: show available tool categories. get_status: get bridge status.' },
+        action: { type: 'string', enum: ['run_ubt', 'get_mod_build_targets', 'build_mod', 'package_mod', 'list_categories', 'get_status'], description: 'run_ubt: compile with UnrealBuildTool. get_mod_build_targets: discover project/mod build targets. build_mod: compile a mod-oriented target. package_mod: run packaging for a mod plugin. list_categories: show available tool categories. get_status: get bridge status.' },
         target: { type: 'string', description: 'Build target name (e.g., MyProjectEditor)' },
         platform: { type: 'string', description: 'Target platform (Win64, Linux, Mac)' },
         configuration: { type: 'string', description: 'Build configuration (Development, Shipping, Debug)' },
-        arguments: { type: 'string', description: 'Additional UBT arguments' }
+        arguments: { type: 'string', description: 'Additional UBT arguments' },
+        mountRoot: { type: 'string', description: 'Mounted Unreal root for a mod or plugin (for example /TajsGraph)' },
+        pluginName: { type: 'string', description: 'Plugin or mod name' }
       },
       required: ['action']
     },
@@ -28,7 +30,9 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
       properties: {
         ...commonSchemas.outputBase,
         output: { type: 'string', description: 'Build output' },
-        command: { type: 'string', description: 'Executed command' }
+        command: { type: 'string', description: 'Executed command' },
+        buildTargets: commonSchemas.arrayOfObjects,
+        plugin: commonSchemas.objectProp
       }
     }
   },
@@ -74,7 +78,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'get_dependencies', 'get_source_control_state', 'analyze_graph', 'get_asset_graph', 'create_thumbnail', 'set_tags', 'get_metadata', 'set_metadata', 'validate', 'fixup_redirectors', 'find_by_tag', 'generate_report',
             'create_material', 'create_material_instance', 'create_render_target', 'generate_lods', 'add_material_parameter', 'list_instances', 'reset_instance_parameters', 'exists', 'get_material_stats',
             'nanite_rebuild_mesh', 'bulk_rename', 'bulk_delete', 'source_control_checkout', 'source_control_submit',
-            'add_material_node', 'connect_material_pins', 'remove_material_node', 'break_material_connections', 'get_material_node_details', 'rebuild_material'
+            'add_material_node', 'connect_material_pins', 'remove_material_node', 'break_material_connections', 'get_material_node_details', 'rebuild_material',
+            'list_by_mount_root', 'verify_asset_references'
           ],
           description: 'Action to perform'
         },
@@ -82,6 +87,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         directory: commonSchemas.directoryPath,
         classNames: commonSchemas.arrayOfStrings,
         packagePaths: commonSchemas.arrayOfStrings,
+        mountRoot: { type: 'string', description: 'Mounted Unreal root used to scope search/list operations (for example /TajsGraph)' },
         recursivePaths: commonSchemas.booleanProp,
         recursiveClasses: commonSchemas.booleanProp,
         limit: commonSchemas.numberProp,
@@ -176,7 +182,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_blueprint',
     category: 'authoring',
-    description: 'Create Blueprints, add SCS components (mesh, collision, camera), and manipulate graph nodes.',
+    description: 'Create Blueprints, add SCS components (mesh, collision, camera), manipulate graph nodes, and summarize mod Blueprints.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -187,12 +193,13 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'add_component', 'set_default', 'modify_scs', 'get_scs', 'add_scs_component', 'remove_scs_component', 'reparent_scs_component', 'set_scs_transform', 'set_scs_property',
             'ensure_exists', 'probe_handle', 'add_variable', 'remove_variable', 'rename_variable', 'add_function', 'add_event', 'remove_event', 'add_construction_script', 'set_variable_metadata', 'set_metadata',
             'create_node', 'add_node', 'delete_node', 'connect_pins', 'break_pin_links', 'set_node_property', 'create_reroute_node', 'get_node_details', 'get_graph_details', 'get_pin_details',
-            'list_node_types', 'set_pin_default_value'
+            'list_node_types', 'set_pin_default_value', 'get_mod_blueprint_summary'
           ],
           description: 'Blueprint action'
         },
         name: commonSchemas.name,
         blueprintPath: commonSchemas.blueprintPath,
+        mountRoot: { type: 'string', description: 'Mounted Unreal root used to scope mod Blueprint workflows' },
         blueprintType: commonSchemas.parentClass,
         savePath: commonSchemas.savePath,
         componentType: commonSchemas.stringProp,
@@ -716,7 +723,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'system_control',
     category: 'core',
-    description: 'Run profiling, set quality/CVars, execute console commands, run UBT, and manage widgets.',
+    description: 'Run profiling, set quality/CVars, execute console commands, run UBT, manage widgets, and tail runtime logs.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -727,7 +734,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'run_ubt', 'run_tests', 'subscribe', 'unsubscribe', 'spawn_category', 'start_session', 'lumen_update_scene',
             'play_sound', 'create_widget', 'show_widget', 'add_widget_child',
             'set_cvar', 'get_project_settings', 'validate_assets',
-            'set_project_setting'
+            'set_project_setting', 'tail_logs'
           ],
           description: 'Action'
         },
@@ -742,6 +749,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         configuration: commonSchemas.stringProp,
         arguments: commonSchemas.stringProp,
         filter: commonSchemas.stringProp,
+        logPath: commonSchemas.stringProp,
+        maxLines: commonSchemas.numberProp,
         channels: commonSchemas.stringProp,
         widgetPath: commonSchemas.widgetPath,
         childClass: commonSchemas.stringProp,
@@ -877,12 +886,21 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'inspect_object', 'get_actor_details', 'get_blueprint_details', 'get_mesh_details',
             'get_texture_details', 'get_material_details', 'get_level_details', 'get_component_details',
             'set_property', 'get_property',
+            'upsert_mod_config_property', 'get_mod_config_tree',
+            'resolve_mod_config_target', 'get_mod_config_descriptor', 'validate_mod_config',
+            'resolve_blueprint_variants', 'inspect_blueprint_defaults', 'inspect_cdo',
+            'inspect_widget_blueprint', 'get_widget_summary',
+            'verify_class_loadability', 'verify_widget_loadability',
+            'get_plugin_descriptor_summary', 'validate_mod_descriptor',
+            'get_mod_summary', 'get_mod_workflow_summary',
+            'prebuild_mod_check', 'postlaunch_mod_check',
+            'find_mod_objects', 'verify_mod_runtime',
             'get_components', 'get_component_property', 'set_component_property',
             'inspect_class', 'list_objects',
             'get_metadata', 'add_tag', 'find_by_tag',
             'create_snapshot', 'restore_snapshot', 'export', 'delete_object', 'find_by_class', 'get_bounding_box',
-            'get_project_settings', 'get_world_settings', 'get_viewport_info', 'get_selected_actors',
-            'get_scene_stats', 'get_performance_stats', 'get_memory_stats', 'get_editor_settings'
+            'get_project_settings', 'get_editor_settings', 'get_mount_points', 'get_world_settings', 'get_viewport_info', 'get_selected_actors',
+            'get_scene_stats', 'get_performance_stats', 'get_memory_stats'
           ],
           description: 'Action'
         },
@@ -890,6 +908,18 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         propertyName: commonSchemas.propertyName,
         propertyPath: commonSchemas.stringProp,
         value: commonSchemas.value,
+        key: commonSchemas.stringProp,
+        newKey: commonSchemas.stringProp,
+        newSection: commonSchemas.stringProp,
+        section: commonSchemas.stringProp,
+        targetSection: commonSchemas.stringProp,
+        propertyType: commonSchemas.stringProp,
+        displayName: commonSchemas.stringProp,
+        tooltip: commonSchemas.stringProp,
+        requiresWorldReload: commonSchemas.booleanProp,
+        hidden: commonSchemas.booleanProp,
+        mountRoot: { type: 'string', description: 'Mounted Unreal root used to scope mod inspection actions' },
+        pluginName: { type: 'string', description: 'Plugin or mod name' },
         actorName: commonSchemas.actorName,
         name: commonSchemas.name,
         componentName: commonSchemas.componentName,
@@ -900,7 +930,9 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         snapshotName: commonSchemas.stringProp,
         destinationPath: commonSchemas.destinationPath,
         outputPath: commonSchemas.outputPath,
-        format: commonSchemas.stringProp
+        format: commonSchemas.stringProp,
+        logPath: commonSchemas.stringProp,
+        maxLines: commonSchemas.numberProp
       },
       required: ['action']
     },

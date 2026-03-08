@@ -2,6 +2,305 @@
 #include "Dom/JsonObject.h"
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeSubsystem.h"
+#include "Engine/Blueprint.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
+#include "Serialization/JsonSerializer.h"
+
+#if MCP_WITH_SML
+#include "Configuration/ModConfiguration.h"
+#include "Configuration/ConfigProperty.h"
+#include "Configuration/Properties/ConfigPropertyBool.h"
+#include "Configuration/Properties/ConfigPropertyFloat.h"
+#include "Configuration/Properties/ConfigPropertyInteger.h"
+#include "Configuration/Properties/ConfigPropertySection.h"
+#include "Configuration/Properties/ConfigPropertyString.h"
+#endif
+
+namespace {
+
+static bool IsValidConfigIdentifier(const FString& Identifier) {
+  if (Identifier.TrimStartAndEnd().IsEmpty()) {
+    return false;
+  }
+
+  for (const TCHAR Character : Identifier) {
+    if (!FChar::IsAlnum(Character) && Character != TEXT('_')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+static FString JsonValueToCompactString(const TSharedPtr<FJsonValue>& Value) {
+  if (!Value.IsValid()) {
+    return FString();
+  }
+
+  switch (Value->Type) {
+  case EJson::String:
+    return Value->AsString();
+  case EJson::Boolean:
+    return Value->AsBool() ? TEXT("true") : TEXT("false");
+  case EJson::Number:
+    return FString::SanitizeFloat(Value->AsNumber());
+  case EJson::Null:
+    return TEXT("null");
+  case EJson::Array:
+  case EJson::Object: {
+    FString Output;
+    auto Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Output);
+    FJsonSerializer::Serialize(Value.ToSharedRef(), FString(), Writer);
+    Writer->Close();
+    return Output;
+  }
+  default:
+    return FString();
+  }
+}
+
+static bool TryGetJsonBoolValue(const TSharedPtr<FJsonValue>& Value, bool& OutValue) {
+  if (!Value.IsValid()) {
+    return false;
+  }
+
+  if (Value->Type == EJson::Boolean) {
+    OutValue = Value->AsBool();
+    return true;
+  }
+
+  if (Value->Type == EJson::Number) {
+    OutValue = !FMath::IsNearlyZero(Value->AsNumber());
+    return true;
+  }
+
+  const FString StringValue = Value->AsString().TrimStartAndEnd();
+  if (StringValue.Equals(TEXT("true"), ESearchCase::IgnoreCase) ||
+      StringValue.Equals(TEXT("1"), ESearchCase::IgnoreCase) ||
+      StringValue.Equals(TEXT("yes"), ESearchCase::IgnoreCase)) {
+    OutValue = true;
+    return true;
+  }
+
+  if (StringValue.Equals(TEXT("false"), ESearchCase::IgnoreCase) ||
+      StringValue.Equals(TEXT("0"), ESearchCase::IgnoreCase) ||
+      StringValue.Equals(TEXT("no"), ESearchCase::IgnoreCase)) {
+    OutValue = false;
+    return true;
+  }
+
+  return false;
+}
+
+static bool TryGetJsonIntValue(const TSharedPtr<FJsonValue>& Value, int32& OutValue) {
+  if (!Value.IsValid()) {
+    return false;
+  }
+
+  if (Value->Type == EJson::Number) {
+    OutValue = static_cast<int32>(Value->AsNumber());
+    return true;
+  }
+
+  const FString StringValue = Value->AsString().TrimStartAndEnd();
+  if (StringValue.IsEmpty()) {
+    return false;
+  }
+
+  OutValue = FCString::Atoi(*StringValue);
+  return true;
+}
+
+static bool TryGetJsonFloatValue(const TSharedPtr<FJsonValue>& Value, float& OutValue) {
+  if (!Value.IsValid()) {
+    return false;
+  }
+
+  if (Value->Type == EJson::Number) {
+    OutValue = static_cast<float>(Value->AsNumber());
+    return true;
+  }
+
+  const FString StringValue = Value->AsString().TrimStartAndEnd();
+  if (StringValue.IsEmpty()) {
+    return false;
+  }
+
+  OutValue = FCString::Atof(*StringValue);
+  return true;
+}
+
+#if MCP_WITH_SML
+static UBlueprint* ResolveBlueprintForObject(UObject* Object) {
+  if (!Object) {
+    return nullptr;
+  }
+
+  if (UBlueprint* Blueprint = Cast<UBlueprint>(Object)) {
+    return Blueprint;
+  }
+
+  if (UClass* ClassObject = Cast<UClass>(Object)) {
+    return Cast<UBlueprint>(ClassObject->ClassGeneratedBy);
+  }
+
+  if (Object->HasAnyFlags(RF_ClassDefaultObject) && Object->GetClass()) {
+    return Cast<UBlueprint>(Object->GetClass()->ClassGeneratedBy);
+  }
+
+  return Object->GetClass() ? Cast<UBlueprint>(Object->GetClass()->ClassGeneratedBy) : nullptr;
+}
+
+static TArray<FString> SplitSectionPath(const FString& SectionPath) {
+  FString Normalized = SectionPath.TrimStartAndEnd();
+  Normalized.ReplaceInline(TEXT("\\"), TEXT("/"));
+  Normalized.ReplaceInline(TEXT("."), TEXT("/"));
+
+  TArray<FString> Parts;
+  Normalized.ParseIntoArray(Parts, TEXT("/"), true);
+  for (FString& Part : Parts) {
+    Part = Part.TrimStartAndEnd();
+  }
+  Parts.RemoveAll([](const FString& Value) { return Value.IsEmpty(); });
+  return Parts;
+}
+
+static UConfigPropertySection* FindOrCreateSection(
+    UConfigPropertySection* RootSection,
+    const TArray<FString>& SectionPath,
+    bool& bCreatedStructure,
+    FString& OutError) {
+  if (!RootSection) {
+    OutError = TEXT("Config root section is missing.");
+    return nullptr;
+  }
+
+  UConfigPropertySection* CurrentSection = RootSection;
+  for (const FString& Segment : SectionPath) {
+    if (!IsValidConfigIdentifier(Segment)) {
+      OutError = FString::Printf(TEXT("Invalid section name '%s'. Use letters, numbers, and underscores only."), *Segment);
+      return nullptr;
+    }
+
+    if (UConfigProperty** ExistingProperty = CurrentSection->SectionProperties.Find(Segment)) {
+      if (UConfigPropertySection* ExistingSection = Cast<UConfigPropertySection>(*ExistingProperty)) {
+        CurrentSection = ExistingSection;
+        continue;
+      }
+
+      OutError = FString::Printf(TEXT("Section path '%s' collides with a non-section config property."), *Segment);
+      return nullptr;
+    }
+
+    CurrentSection->Modify();
+    UConfigPropertySection* NewSection =
+        NewObject<UConfigPropertySection>(CurrentSection, UConfigPropertySection::StaticClass(),
+                                          MakeUniqueObjectName(CurrentSection, UConfigPropertySection::StaticClass(),
+                                                               *FString::Printf(TEXT("%s_Section"), *Segment)),
+                                          RF_Public | RF_Transactional);
+    NewSection->DisplayName = FText::FromString(Segment);
+    CurrentSection->SectionProperties.Add(Segment, NewSection);
+    CurrentSection = NewSection;
+    bCreatedStructure = true;
+  }
+
+  return CurrentSection;
+}
+
+static UConfigProperty* CreateTypedConfigProperty(
+    UObject* Outer,
+    const FString& Key,
+    const FString& NormalizedType) {
+  UClass* PropertyClass = nullptr;
+  if (NormalizedType == TEXT("bool") || NormalizedType == TEXT("boolean")) {
+    PropertyClass = UConfigPropertyBool::StaticClass();
+  } else if (NormalizedType == TEXT("float")) {
+    PropertyClass = UConfigPropertyFloat::StaticClass();
+  } else if (NormalizedType == TEXT("int") || NormalizedType == TEXT("integer")) {
+    PropertyClass = UConfigPropertyInteger::StaticClass();
+  } else if (NormalizedType == TEXT("string")) {
+    PropertyClass = UConfigPropertyString::StaticClass();
+  }
+
+  if (!PropertyClass || !Outer) {
+    return nullptr;
+  }
+
+  return NewObject<UConfigProperty>(Outer, PropertyClass,
+                                    MakeUniqueObjectName(Outer, PropertyClass,
+                                                         *FString::Printf(TEXT("%s_Property"), *Key)),
+                                    RF_Public | RF_Transactional);
+}
+
+static TSharedPtr<FJsonObject> SerializeConfigPropertyTree(
+    const UConfigProperty* Property,
+    const FString& Key) {
+  TSharedPtr<FJsonObject> Node = MakeShared<FJsonObject>();
+  Node->SetStringField(TEXT("key"), Key);
+
+  if (!Property) {
+    Node->SetStringField(TEXT("kind"), TEXT("null"));
+    return Node;
+  }
+
+  Node->SetStringField(TEXT("path"), Property->GetPathName());
+  Node->SetStringField(TEXT("class"), Property->GetClass()->GetName());
+  Node->SetStringField(TEXT("displayName"), Property->DisplayName.ToString());
+  Node->SetStringField(TEXT("tooltip"), Property->Tooltip.ToString());
+  Node->SetBoolField(TEXT("requiresWorldReload"), Property->bRequiresWorldReload);
+  Node->SetBoolField(TEXT("hidden"), Property->bHidden);
+
+  if (const UConfigPropertySection* Section = Cast<UConfigPropertySection>(Property)) {
+    Node->SetStringField(TEXT("kind"), TEXT("section"));
+
+    TArray<FString> ChildKeys;
+    Section->SectionProperties.GenerateKeyArray(ChildKeys);
+    ChildKeys.Sort();
+
+    TArray<TSharedPtr<FJsonValue>> Children;
+    for (const FString& ChildKey : ChildKeys) {
+      const UConfigProperty* const* ChildProperty = Section->SectionProperties.Find(ChildKey);
+      Children.Add(MakeShared<FJsonValueObject>(
+          SerializeConfigPropertyTree(ChildProperty ? *ChildProperty : nullptr, ChildKey)));
+    }
+
+    Node->SetArrayField(TEXT("children"), Children);
+    Node->SetNumberField(TEXT("childCount"), Children.Num());
+    return Node;
+  }
+
+  if (const UConfigPropertyBool* BoolProperty = Cast<UConfigPropertyBool>(Property)) {
+    Node->SetStringField(TEXT("kind"), TEXT("bool"));
+    Node->SetBoolField(TEXT("value"), BoolProperty->Value);
+    return Node;
+  }
+
+  if (const UConfigPropertyFloat* FloatProperty = Cast<UConfigPropertyFloat>(Property)) {
+    Node->SetStringField(TEXT("kind"), TEXT("float"));
+    Node->SetNumberField(TEXT("value"), FloatProperty->Value);
+    return Node;
+  }
+
+  if (const UConfigPropertyInteger* IntProperty = Cast<UConfigPropertyInteger>(Property)) {
+    Node->SetStringField(TEXT("kind"), TEXT("int"));
+    Node->SetNumberField(TEXT("value"), IntProperty->Value);
+    return Node;
+  }
+
+  if (const UConfigPropertyString* StringProperty = Cast<UConfigPropertyString>(Property)) {
+    Node->SetStringField(TEXT("kind"), TEXT("string"));
+    Node->SetStringField(TEXT("value"), StringProperty->Value);
+    return Node;
+  }
+
+  Node->SetStringField(TEXT("kind"), TEXT("unknown"));
+  Node->SetStringField(TEXT("describeValue"), Property->DescribeValue());
+  return Node;
+}
+#endif
+
+} // namespace
 
 bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
     const FString &RequestId, const FString &Action,
@@ -271,6 +570,325 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
                          TEXT("Property value updated."), ResultPayload,
                          FString());
   return true;
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleUpsertModConfigProperty(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("upsert_mod_config_property requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#elif !MCP_WITH_SML
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("SML module is not available in this project."),
+                      TEXT("SML_NOT_AVAILABLE"));
+  return true;
+#else
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("upsert_mod_config_property payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString ObjectPath;
+  if (!Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) ||
+      ObjectPath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("objectPath is required."),
+                        TEXT("INVALID_OBJECT"));
+    return true;
+  }
+
+  FString Key;
+  if (!Payload->TryGetStringField(TEXT("key"), Key) ||
+      !IsValidConfigIdentifier(Key.TrimStartAndEnd())) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("key is required and must contain only letters, numbers, or underscores."),
+                        TEXT("INVALID_KEY"));
+    return true;
+  }
+  Key = Key.TrimStartAndEnd();
+
+  FString PropertyType;
+  if (!Payload->TryGetStringField(TEXT("propertyType"), PropertyType) ||
+      PropertyType.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("propertyType is required."),
+                        TEXT("INVALID_PROPERTY_TYPE"));
+    return true;
+  }
+
+  const FString NormalizedType = PropertyType.TrimStartAndEnd().ToLower();
+  if (!(NormalizedType == TEXT("bool") || NormalizedType == TEXT("boolean") ||
+        NormalizedType == TEXT("float") || NormalizedType == TEXT("int") ||
+        NormalizedType == TEXT("integer") || NormalizedType == TEXT("string"))) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Unsupported propertyType '%s'. Expected bool, float, int, or string."), *PropertyType),
+                        TEXT("INVALID_PROPERTY_TYPE"));
+    return true;
+  }
+
+  const TSharedPtr<FJsonValue> ValueField = Payload->TryGetField(TEXT("value"));
+  if (!ValueField.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("value is required."),
+                        TEXT("INVALID_VALUE"));
+    return true;
+  }
+
+  UObject* ResolvedObject = ResolveObjectFromPath(ObjectPath);
+  UBlueprint* Blueprint = ResolveBlueprintForObject(ResolvedObject);
+  if (!Blueprint || !Blueprint->GeneratedClass) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Unable to resolve a Blueprint-backed object from '%s'."), *ObjectPath),
+                        TEXT("BLUEPRINT_NOT_FOUND"));
+    return true;
+  }
+
+  if (!Blueprint->GeneratedClass->IsChildOf(UModConfiguration::StaticClass())) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Resolved blueprint '%s' is not a UModConfiguration."), *Blueprint->GetPathName()),
+                        TEXT("INVALID_CONFIG_BLUEPRINT"));
+    return true;
+  }
+
+  UModConfiguration* ConfigObject =
+      Cast<UModConfiguration>(Blueprint->GeneratedClass->GetDefaultObject());
+  if (!ConfigObject) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("Unable to resolve config default object."),
+                        TEXT("CONFIG_OBJECT_NOT_FOUND"));
+    return true;
+  }
+
+  bool bStructuralChange = false;
+  Blueprint->Modify();
+  ConfigObject->Modify();
+
+  if (!ConfigObject->RootSection) {
+    ConfigObject->RootSection =
+        NewObject<UConfigPropertySection>(ConfigObject, UConfigPropertySection::StaticClass(),
+                                          TEXT("RootSection"), RF_Public | RF_Transactional);
+    ConfigObject->RootSection->DisplayName = FText::FromString(TEXT("Root"));
+    bStructuralChange = true;
+  }
+
+  FString SectionName;
+  Payload->TryGetStringField(TEXT("section"), SectionName);
+  const TArray<FString> SectionPath = SplitSectionPath(SectionName);
+
+  FString SectionError;
+  bool bCreatedSection = false;
+  UConfigPropertySection* TargetSection =
+      FindOrCreateSection(ConfigObject->RootSection, SectionPath, bCreatedSection, SectionError);
+  if (!TargetSection) {
+    SendAutomationError(RequestingSocket, RequestId, SectionError, TEXT("INVALID_SECTION"));
+    return true;
+  }
+  bStructuralChange = bStructuralChange || bCreatedSection;
+
+  UConfigProperty* ExistingProperty = nullptr;
+  if (UConfigProperty** ExistingPropertyPtr = TargetSection->SectionProperties.Find(Key)) {
+    ExistingProperty = *ExistingPropertyPtr;
+  }
+
+  UConfigProperty* TargetProperty = ExistingProperty;
+  const bool bNeedsReplacement =
+      !TargetProperty ||
+      (NormalizedType == TEXT("bool") || NormalizedType == TEXT("boolean") ? !TargetProperty->IsA<UConfigPropertyBool>() :
+       NormalizedType == TEXT("float") ? !TargetProperty->IsA<UConfigPropertyFloat>() :
+       (NormalizedType == TEXT("int") || NormalizedType == TEXT("integer")) ? !TargetProperty->IsA<UConfigPropertyInteger>() :
+       !TargetProperty->IsA<UConfigPropertyString>());
+
+  if (bNeedsReplacement) {
+    TargetSection->Modify();
+    TargetProperty = CreateTypedConfigProperty(TargetSection, Key, NormalizedType);
+    if (!TargetProperty) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Unable to create config property object."),
+                          TEXT("PROPERTY_CREATE_FAILED"));
+      return true;
+    }
+    TargetSection->SectionProperties.Add(Key, TargetProperty);
+    bStructuralChange = true;
+  }
+
+  TargetProperty->Modify();
+
+  FString DisplayName;
+  if (Payload->TryGetStringField(TEXT("displayName"), DisplayName) && !DisplayName.TrimStartAndEnd().IsEmpty()) {
+    TargetProperty->DisplayName = FText::FromString(DisplayName.TrimStartAndEnd());
+  } else if (bNeedsReplacement) {
+    TargetProperty->DisplayName = FText::FromString(Key);
+  }
+
+  FString Tooltip;
+  if (Payload->TryGetStringField(TEXT("tooltip"), Tooltip)) {
+    TargetProperty->Tooltip = FText::FromString(Tooltip);
+  }
+
+  bool bRequiresWorldReload = false;
+  if (Payload->TryGetBoolField(TEXT("requiresWorldReload"), bRequiresWorldReload)) {
+    TargetProperty->bRequiresWorldReload = bRequiresWorldReload;
+  }
+
+  bool bHidden = false;
+  if (Payload->TryGetBoolField(TEXT("hidden"), bHidden)) {
+    TargetProperty->bHidden = bHidden;
+  }
+
+  bool bAppliedValue = false;
+  if (UConfigPropertyBool* BoolProperty = Cast<UConfigPropertyBool>(TargetProperty)) {
+    bool ParsedValue = false;
+    bAppliedValue = TryGetJsonBoolValue(ValueField, ParsedValue);
+    if (bAppliedValue) {
+      BoolProperty->Value = ParsedValue;
+    }
+  } else if (UConfigPropertyFloat* FloatProperty = Cast<UConfigPropertyFloat>(TargetProperty)) {
+    float ParsedValue = 0.0f;
+    bAppliedValue = TryGetJsonFloatValue(ValueField, ParsedValue);
+    if (bAppliedValue) {
+      FloatProperty->Value = ParsedValue;
+    }
+  } else if (UConfigPropertyInteger* IntProperty = Cast<UConfigPropertyInteger>(TargetProperty)) {
+    int32 ParsedValue = 0;
+    bAppliedValue = TryGetJsonIntValue(ValueField, ParsedValue);
+    if (bAppliedValue) {
+      IntProperty->Value = ParsedValue;
+    }
+  } else if (UConfigPropertyString* StringProperty = Cast<UConfigPropertyString>(TargetProperty)) {
+    StringProperty->Value = JsonValueToCompactString(ValueField);
+    bAppliedValue = true;
+  }
+
+  if (!bAppliedValue) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Unable to coerce value for propertyType '%s'."), *PropertyType),
+                        TEXT("INVALID_VALUE"));
+    return true;
+  }
+
+  TargetProperty->MarkPackageDirty();
+  ConfigObject->MarkPackageDirty();
+  Blueprint->MarkPackageDirty();
+  if (UPackage* BlueprintPackage = Blueprint->GetOutermost()) {
+    BlueprintPackage->MarkPackageDirty();
+  }
+
+  if (bStructuralChange) {
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+  } else {
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+  }
+
+  const bool bCompiled = McpSafeCompileBlueprint(Blueprint);
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("objectPath"), ObjectPath);
+  ResultPayload->SetStringField(TEXT("resolvedBlueprintPath"), Blueprint->GetPathName());
+  ResultPayload->SetStringField(TEXT("resolvedConfigClassPath"), Blueprint->GeneratedClass->GetPathName());
+  ResultPayload->SetStringField(TEXT("key"), Key);
+  ResultPayload->SetStringField(TEXT("propertyType"), NormalizedType);
+  ResultPayload->SetStringField(TEXT("section"), SectionName);
+  ResultPayload->SetBoolField(TEXT("created"), ExistingProperty == nullptr);
+  ResultPayload->SetBoolField(TEXT("replaced"), ExistingProperty != nullptr && ExistingProperty != TargetProperty);
+  ResultPayload->SetBoolField(TEXT("compiled"), bCompiled);
+  ResultPayload->SetBoolField(TEXT("structuralChange"), bStructuralChange);
+  ResultPayload->SetField(TEXT("value"), ValueField);
+  AddAssetVerification(ResultPayload, Blueprint);
+
+  TSharedPtr<FJsonObject> PropertyInfo = MakeShared<FJsonObject>();
+  PropertyInfo->SetStringField(TEXT("path"), TargetProperty->GetPathName());
+  PropertyInfo->SetStringField(TEXT("class"), TargetProperty->GetClass()->GetName());
+  PropertyInfo->SetStringField(TEXT("displayName"), TargetProperty->DisplayName.ToString());
+  PropertyInfo->SetStringField(TEXT("tooltip"), TargetProperty->Tooltip.ToString());
+  PropertyInfo->SetBoolField(TEXT("requiresWorldReload"), TargetProperty->bRequiresWorldReload);
+  PropertyInfo->SetBoolField(TEXT("hidden"), TargetProperty->bHidden);
+  ResultPayload->SetObjectField(TEXT("property"), PropertyInfo);
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         TEXT("Mod config property upserted."), ResultPayload,
+                         FString());
+  return true;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleGetModConfigTree(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("get_mod_config_tree requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#elif !MCP_WITH_SML
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("SML module is not available in this project."),
+                      TEXT("SML_NOT_AVAILABLE"));
+  return true;
+#else
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("get_mod_config_tree payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString ObjectPath;
+  if (!Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) ||
+      ObjectPath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("objectPath is required."),
+                        TEXT("INVALID_OBJECT"));
+    return true;
+  }
+
+  UObject* ResolvedObject = ResolveObjectFromPath(ObjectPath);
+  UBlueprint* Blueprint = ResolveBlueprintForObject(ResolvedObject);
+  if (!Blueprint || !Blueprint->GeneratedClass) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Unable to resolve a Blueprint-backed object from '%s'."), *ObjectPath),
+                        TEXT("BLUEPRINT_NOT_FOUND"));
+    return true;
+  }
+
+  if (!Blueprint->GeneratedClass->IsChildOf(UModConfiguration::StaticClass())) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Resolved blueprint '%s' is not a UModConfiguration."), *Blueprint->GetPathName()),
+                        TEXT("INVALID_CONFIG_BLUEPRINT"));
+    return true;
+  }
+
+  UModConfiguration* ConfigObject =
+      Cast<UModConfiguration>(Blueprint->GeneratedClass->GetDefaultObject());
+  if (!ConfigObject) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("Unable to resolve config default object."),
+                        TEXT("CONFIG_OBJECT_NOT_FOUND"));
+    return true;
+  }
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("objectPath"), ObjectPath);
+  ResultPayload->SetStringField(TEXT("resolvedBlueprintPath"), Blueprint->GetPathName());
+  ResultPayload->SetStringField(TEXT("resolvedConfigClassPath"), Blueprint->GeneratedClass->GetPathName());
+  ResultPayload->SetStringField(TEXT("configIdModReference"), ConfigObject->ConfigId.ModReference);
+  ResultPayload->SetStringField(TEXT("configIdCategory"), ConfigObject->ConfigId.ConfigCategory);
+  ResultPayload->SetStringField(TEXT("displayName"), ConfigObject->DisplayName.ToString());
+  ResultPayload->SetStringField(TEXT("description"), ConfigObject->Description.ToString());
+  ResultPayload->SetObjectField(
+      TEXT("tree"),
+      SerializeConfigPropertyTree(ConfigObject->RootSection, TEXT("RootSection")));
+  AddAssetVerification(ResultPayload, Blueprint);
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         TEXT("Mod config tree retrieved."), ResultPayload,
+                         FString());
+  return true;
+#endif
 }
 
 bool UMcpAutomationBridgeSubsystem::HandleGetObjectProperty(

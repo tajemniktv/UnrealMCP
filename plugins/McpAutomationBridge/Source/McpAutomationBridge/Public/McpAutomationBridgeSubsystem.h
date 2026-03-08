@@ -206,6 +206,12 @@ private:
   HandleGetObjectProperty(const FString &RequestId, const FString &Action,
                           const TSharedPtr<FJsonObject> &Payload,
                           TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
+  bool HandleGetModConfigTree(const FString &RequestId,
+                              const TSharedPtr<FJsonObject> &Payload,
+                              TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
+  bool HandleUpsertModConfigProperty(const FString &RequestId,
+                                     const TSharedPtr<FJsonObject> &Payload,
+                                     TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
   // Array manipulation operations
   bool HandleArrayAppend(const FString &RequestId, const FString &Action,
                          const TSharedPtr<FJsonObject> &Payload,

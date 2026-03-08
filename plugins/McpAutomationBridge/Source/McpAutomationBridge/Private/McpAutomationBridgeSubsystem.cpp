@@ -1,11 +1,7 @@
-// Ensure the subsystem type and bridge socket types are available
-// Include helpers first to ensure MCP_HAS_CONTROLRIG_FACTORY is properly defined
-// before McpAutomationBridgeSubsystem.h sets default values
+#include "McpAutomationBridgeSubsystem.h"
 #if WITH_EDITOR
 #include "McpAutomationBridgeHelpers.h"
 #endif
-
-#include "McpAutomationBridgeSubsystem.h"
 #include "Dom/JsonObject.h"
 #include "Async/TaskGraphInterfaces.h"
 #include "Async/Async.h"

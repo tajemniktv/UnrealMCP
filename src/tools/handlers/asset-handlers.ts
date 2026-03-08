@@ -5,6 +5,7 @@ import { executeAutomationRequest } from './common-handlers.js';
 import { normalizeArgs, extractString, extractOptionalString, extractOptionalNumber, extractOptionalBoolean, extractOptionalArray } from './argument-helper.js';
 import { ResponseFactory } from '../../utils/response-factory.js';
 import { sanitizePath } from '../../utils/validation.js';
+import { classifyMountRoot, getMountRoot } from './modding-utils.js';
 
 /**
  * Valid actions for manage_asset tool.
@@ -29,6 +30,7 @@ const VALID_ASSET_ACTIONS = new Set([
   'source_control_checkout', 'source_control_submit', 'source_control_enable', 'get_source_control_state',
   // Graph analysis
   'analyze_graph', 'get_asset_graph'
+  , 'list_by_mount_root', 'verify_asset_references'
 ]);
 
 /**
@@ -463,24 +465,83 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         const params = normalizeArgs(args, [
           { key: 'classNames' },
           { key: 'packagePaths' },
+          { key: 'mountRoot' },
           { key: 'recursivePaths' },
           { key: 'recursiveClasses' },
           { key: 'limit' }
         ]);
         const classNames = extractOptionalArray<string>(params, 'classNames');
+        const mountRoot = extractOptionalString(params, 'mountRoot');
         const packagePaths = extractOptionalArray<string>(params, 'packagePaths');
+        const effectivePackagePaths = Array.from(new Set([
+          ...(packagePaths ?? []),
+          ...(mountRoot ? [sanitizePath(mountRoot)] : [])
+        ]));
         const recursivePaths = extractOptionalBoolean(params, 'recursivePaths');
         const recursiveClasses = extractOptionalBoolean(params, 'recursiveClasses');
         const limit = extractOptionalNumber(params, 'limit');
         const res = await executeAutomationRequest(tools, 'asset_query', {
           classNames,
-          packagePaths,
+          packagePaths: effectivePackagePaths,
           recursivePaths,
           recursiveClasses,
           limit,
           subAction: 'search_assets'
         }) as AssetOperationResponse;
         return ResponseFactory.success(res, 'Assets found');
+      }
+      case 'list_by_mount_root': {
+        const params = normalizeArgs(args, [
+          { key: 'mountRoot', required: true },
+          { key: 'recursive', default: false },
+          { key: 'limit', default: 50 }
+        ]);
+        const mountRoot = sanitizePath(extractString(params, 'mountRoot'));
+        const recursive = extractOptionalBoolean(params, 'recursive') ?? false;
+        const limit = extractOptionalNumber(params, 'limit') ?? 50;
+        return await handleAssetTools('list', { path: mountRoot, recursive, limit }, tools);
+      }
+      case 'verify_asset_references': {
+        const argsTyped = args as AssetArgs;
+        const assetPaths = Array.isArray(argsTyped.assetPaths)
+          ? argsTyped.assetPaths.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+          : [];
+        if (typeof argsTyped.assetPath === 'string' && argsTyped.assetPath.trim().length > 0) {
+          assetPaths.unshift(argsTyped.assetPath.trim());
+        }
+        if (assetPaths.length === 0) {
+          return ResponseFactory.error('INVALID_ARGUMENT', 'assetPath or assetPaths is required for verify_asset_references');
+        }
+
+        const results: Array<Record<string, unknown>> = [];
+        for (const assetPath of assetPaths) {
+          const dependencyResult = await handleAssetTools('get_dependencies', { assetPath }, tools);
+          const dependencyList = Array.isArray((dependencyResult as Record<string, unknown>).dependencies)
+            ? ((dependencyResult as Record<string, unknown>).dependencies as Array<Record<string, unknown>>)
+            : [];
+          const roots = Array.from(new Set(
+            dependencyList
+              .map((dep) => {
+                const packageName = typeof dep.packageName === 'string' ? dep.packageName : '';
+                return getMountRoot(packageName);
+              })
+              .filter((value): value is string => typeof value === 'string' && value.length > 0)
+          ));
+
+          results.push({
+            assetPath,
+            referencedRoots: roots,
+            classifications: roots.map((root) => ({ root, type: classifyMountRoot(root) })),
+            dependencyCount: dependencyList.length,
+            rawDependencies: dependencyList
+          });
+        }
+
+        return cleanObject({
+          success: true,
+          message: `Verified asset references for ${results.length} asset(s)`,
+          results
+        });
       }
       case 'find_by_tag': {
         const params = normalizeArgs(args, [

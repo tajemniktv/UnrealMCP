@@ -3,6 +3,7 @@ import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, InspectArgs, ComponentInfo } from '../../types/handler-types.js';
 import { executeAutomationRequest } from './common-handlers.js';
 import { normalizeArgs, resolveObjectPath, extractString, extractOptionalString } from './argument-helper.js';
+import { classifyMountRoot, deriveBlueprintVariants, findPluginDescriptorByName, findPluginDescriptorByRoot, findProjectContext, getMountRoot, listPluginDescriptors, listTargetFiles, summarizeDescriptor } from './modding-utils.js';
 
 /** Response from introspection operations */
 interface InspectResponse {
@@ -14,6 +15,30 @@ interface InspectResponse {
   objects?: unknown[];
   cdo?: unknown;
   [key: string]: unknown;
+}
+
+async function searchAssetsByMountRoot(
+  tools: ITools,
+  mountRoot: string,
+  classNames?: string[],
+  limit: number = 250
+): Promise<Record<string, unknown>> {
+  return await executeAutomationRequest(tools, 'asset_query', {
+    packagePaths: [mountRoot],
+    classNames,
+    recursivePaths: true,
+    recursiveClasses: true,
+    limit,
+    subAction: 'search_assets'
+  }) as Record<string, unknown>;
+}
+
+function getAssetsFromSearchResponse(response: Record<string, unknown>): Array<Record<string, unknown>> {
+  if (Array.isArray(response.assets)) return response.assets as Array<Record<string, unknown>>;
+  if (response.result && typeof response.result === 'object' && Array.isArray((response.result as Record<string, unknown>).assets)) {
+    return (response.result as Record<string, unknown>).assets as Array<Record<string, unknown>>;
+  }
+  return [];
 }
 
 /**
@@ -34,6 +59,7 @@ const INSPECT_ACTION_ALIASES: Record<string, string> = {
   'get_scene_stats': 'get_scene_stats',
   'get_viewport_info': 'get_viewport_info',
   'get_selected_actors': 'get_selected_actors',
+  'get_mount_points': 'get_mount_points',
 };
 
 /**
@@ -374,6 +400,289 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
 
       return cleanObject(res);
     }
+    case 'upsert_mod_config_property': {
+      const objectPath = await resolveObjectPath(args, tools);
+      const params = normalizeArgs(args, [
+        { key: 'key', required: true },
+        { key: 'propertyType', required: true },
+        { key: 'section' },
+        { key: 'displayName' },
+        { key: 'tooltip' },
+        { key: 'value' }
+      ]);
+
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const key = extractString(params, 'key');
+      const propertyType = extractString(params, 'propertyType');
+      const section = extractOptionalString(params, 'section');
+      const displayName = extractOptionalString(params, 'displayName');
+      const tooltip = extractOptionalString(params, 'tooltip');
+      const requiresWorldReload =
+        typeof argsTyped.requiresWorldReload === 'boolean' ? argsTyped.requiresWorldReload : undefined;
+      const hidden = typeof argsTyped.hidden === 'boolean' ? argsTyped.hidden : undefined;
+
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        action: 'upsert_mod_config_property',
+        objectPath,
+        key,
+        propertyType,
+        section,
+        displayName,
+        tooltip,
+        requiresWorldReload,
+        hidden,
+        value: params.value
+      }) as InspectResponse;
+
+      return cleanObject(res);
+    }
+    case 'get_mod_config_tree': {
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        action: 'get_mod_config_tree',
+        objectPath
+      }) as InspectResponse;
+
+      return cleanObject(res);
+    }
+    case 'resolve_mod_config_target':
+    case 'resolve_blueprint_variants': {
+      const objectPath = await resolveObjectPath(args, tools);
+      const targetPath = objectPath
+        || extractOptionalString(normalizeArgs(args, [{ key: 'objectPath' }, { key: 'classPath' }]), 'objectPath');
+      if (!targetPath) {
+        throw new Error('objectPath or classPath is required');
+      }
+
+      const variants = deriveBlueprintVariants(targetPath);
+      return cleanObject({
+        success: true,
+        ...variants,
+        mountRoot: getMountRoot(String(variants.assetObjectPath)),
+        classification: classifyMountRoot(getMountRoot(String(variants.assetObjectPath)))
+      });
+    }
+    case 'get_mod_config_descriptor': {
+      const treeRes = await handleInspectTools('get_mod_config_tree', args, tools);
+      const tree = (treeRes as Record<string, unknown>).tree as Record<string, unknown> | undefined;
+      const descriptor: Array<Record<string, unknown>> = [];
+
+      const walk = (node: Record<string, unknown> | undefined, currentPath: string[] = []) => {
+        if (!node) return;
+        const key = typeof node.key === 'string' ? node.key : '';
+        const kind = typeof node.kind === 'string' ? node.kind : '';
+        const nextPath = key && key !== 'RootSection' ? [...currentPath, key] : currentPath;
+        if (kind && kind !== 'section' && nextPath.length > 0) {
+          descriptor.push({
+            key: nextPath.join('.'),
+            kind,
+            value: node.value,
+            displayName: node.displayName,
+            tooltip: node.tooltip,
+            requiresWorldReload: node.requiresWorldReload,
+            hidden: node.hidden,
+            path: node.path
+          });
+        }
+        const children = Array.isArray(node.children) ? node.children as Array<Record<string, unknown>> : [];
+        for (const child of children) {
+          walk(child, nextPath);
+        }
+      };
+
+      walk(tree);
+      return cleanObject({
+        ...treeRes,
+        descriptor,
+        count: descriptor.length
+      });
+    }
+    case 'validate_mod_config': {
+      const descriptorRes = await handleInspectTools('get_mod_config_descriptor', args, tools);
+      const descriptor = Array.isArray((descriptorRes as Record<string, unknown>).descriptor)
+        ? (descriptorRes as Record<string, unknown>).descriptor as Array<Record<string, unknown>>
+        : [];
+      const issues = descriptor.flatMap((entry) => {
+        const key = typeof entry.key === 'string' ? entry.key : '';
+        const results: Array<Record<string, unknown>> = [];
+        if (!/^[A-Za-z0-9_.]+$/.test(key)) {
+          results.push({ severity: 'error', key, message: 'Invalid config key format' });
+        }
+        if (entry.kind === 'string' && typeof entry.value !== 'string') {
+          results.push({ severity: 'warning', key, message: 'String property has non-string value shape' });
+        }
+        return results;
+      });
+      return cleanObject({
+        success: true,
+        valid: issues.filter((issue) => issue.severity === 'error').length === 0,
+        descriptorCount: descriptor.length,
+        issues
+      });
+    }
+    case 'inspect_blueprint_defaults':
+    case 'inspect_cdo': {
+      const variantsRes = await handleInspectTools('resolve_blueprint_variants', args, tools);
+      const variants = variantsRes as Record<string, unknown>;
+      const inspectionTarget = normalizedAction === 'inspect_cdo'
+        ? String(variants.cdoPath ?? '')
+        : String(variants.generatedClassPath ?? variants.assetObjectPath ?? '');
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        action: 'inspect_object',
+        objectPath: inspectionTarget,
+        detailed: true
+      }) as InspectResponse;
+      return cleanObject({
+        ...res,
+        variants
+      });
+    }
+    case 'inspect_widget_blueprint':
+    case 'get_widget_summary': {
+      const variantsRes = await handleInspectTools('resolve_blueprint_variants', args, tools);
+      const variants = variantsRes as Record<string, unknown>;
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        action: 'inspect_object',
+        objectPath: String(variants.assetObjectPath ?? ''),
+        detailed: true
+      }) as InspectResponse;
+      return cleanObject({
+        success: true,
+        widgetPath: variants.assetObjectPath,
+        variants,
+        inspection: res
+      });
+    }
+    case 'verify_class_loadability':
+    case 'verify_widget_loadability': {
+      const variantsRes = await handleInspectTools('resolve_blueprint_variants', args, tools);
+      const variants = variantsRes as Record<string, unknown>;
+      const target = normalizedAction === 'verify_widget_loadability'
+        ? String(variants.assetObjectPath ?? '')
+        : String(variants.generatedClassPath ?? variants.assetObjectPath ?? '');
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        action: 'inspect_object',
+        objectPath: target
+      }) as InspectResponse;
+      return cleanObject({
+        success: res.success !== false,
+        loadable: res.success !== false,
+        target,
+        response: res,
+        variants
+      });
+    }
+    case 'get_plugin_descriptor_summary':
+    case 'validate_mod_descriptor':
+    case 'get_mod_summary':
+    case 'get_mod_workflow_summary':
+    case 'prebuild_mod_check':
+    case 'postlaunch_mod_check': {
+      const params = normalizeArgs(args, [{ key: 'mountRoot' }, { key: 'pluginName' }, { key: 'objectPath' }]);
+      const project = findProjectContext();
+      const objectPath = extractOptionalString(params, 'objectPath');
+      const mountRoot = extractOptionalString(params, 'mountRoot') ?? getMountRoot(objectPath);
+      const pluginName = extractOptionalString(params, 'pluginName');
+      const descriptor = findPluginDescriptorByRoot(project.repoRoot, mountRoot) ?? findPluginDescriptorByName(project.repoRoot, pluginName);
+
+      if (!descriptor) {
+        return cleanObject({
+          success: false,
+          error: 'PLUGIN_NOT_FOUND',
+          message: 'Unable to resolve plugin from mountRoot/pluginName/objectPath',
+          availablePlugins: listPluginDescriptors(project.repoRoot).map((entry) => entry.mountRoot)
+        });
+      }
+
+      const summary = summarizeDescriptor(descriptor);
+      const assetSearch = await searchAssetsByMountRoot(tools, descriptor.mountRoot, undefined, 300);
+      const assets = getAssetsFromSearchResponse(assetSearch);
+      const configBlueprintCandidates = assets.filter((asset) => {
+        const assetPath = typeof asset.path === 'string' ? asset.path : '';
+        return /config/i.test(assetPath) && /BP_/i.test(assetPath);
+      }).slice(0, 25);
+      const widgetBlueprintCandidates = assets.filter((asset) => {
+        const assetPath = typeof asset.path === 'string' ? asset.path : '';
+        return /\/UI\//i.test(assetPath) || /WBP_/i.test(assetPath);
+      }).slice(0, 25);
+      const descriptorIssues: Array<Record<string, unknown>> = [];
+      if (!summary.canContainContent) descriptorIssues.push({ severity: 'warning', message: 'Plugin descriptor does not declare CanContainContent=true' });
+      if (!Array.isArray(summary.modules) || (summary.modules as unknown[]).length === 0) descriptorIssues.push({ severity: 'warning', message: 'Plugin has no declared modules' });
+      if (!summary.versionName) descriptorIssues.push({ severity: 'warning', message: 'Plugin descriptor is missing VersionName' });
+
+      const runtimeVerification = normalizedAction === 'postlaunch_mod_check'
+        ? await handleInspectTools('verify_mod_runtime', { mountRoot: descriptor.mountRoot, pluginName: descriptor.pluginName }, tools)
+        : undefined;
+
+      return cleanObject({
+        success: normalizedAction === 'validate_mod_descriptor' ? descriptorIssues.length === 0 : true,
+        project,
+        plugin: summary,
+        descriptorIssues,
+        mountRoot: descriptor.mountRoot,
+        configBlueprintCandidates,
+        widgetBlueprintCandidates,
+        notableAssets: assets.slice(0, 100),
+        buildTargets: listTargetFiles(project.repoRoot),
+        runtimeVerification
+      });
+    }
+    case 'find_mod_objects': {
+      const params = normalizeArgs(args, [{ key: 'filter' }, { key: 'pluginName' }]);
+      const filter = extractOptionalString(params, 'filter') ?? extractOptionalString(params, 'pluginName') ?? '';
+      const list = await executeAutomationRequest(tools, 'inspect', {
+        action: 'list_objects'
+      }) as InspectResponse;
+      const objects = Array.isArray(list.objects) ? list.objects : [];
+      const filtered = filter
+        ? objects.filter((entry) => JSON.stringify(entry).toLowerCase().includes(filter.toLowerCase()))
+        : objects;
+      return cleanObject({
+        success: true,
+        count: filtered.length,
+        objects: filtered
+      });
+    }
+    case 'verify_mod_runtime': {
+      const summary = await handleInspectTools('get_mod_summary', args, tools);
+      const summaryRecord = summary as Record<string, unknown>;
+      const configBlueprints = Array.isArray(summaryRecord.configBlueprintCandidates) ? summaryRecord.configBlueprintCandidates as Array<Record<string, unknown>> : [];
+      const widgetBlueprints = Array.isArray(summaryRecord.widgetBlueprintCandidates) ? summaryRecord.widgetBlueprintCandidates as Array<Record<string, unknown>> : [];
+      const plugin = summaryRecord.plugin as Record<string, unknown> | undefined;
+
+      const configChecks = await Promise.all(configBlueprints.slice(0, 5).map(async (entry) => {
+        const objectPath = typeof entry.path === 'string' ? entry.path : '';
+        return await handleInspectTools('verify_class_loadability', { objectPath }, tools);
+      }));
+      const widgetChecks = await Promise.all(widgetBlueprints.slice(0, 5).map(async (entry) => {
+        const objectPath = typeof entry.path === 'string' ? entry.path : '';
+        return await handleInspectTools('verify_widget_loadability', { objectPath }, tools);
+      }));
+      const objectChecks = await handleInspectTools('find_mod_objects', {
+        filter: typeof plugin?.pluginName === 'string' ? plugin.pluginName : undefined
+      }, tools);
+      const logChecks = await executeAutomationRequest(tools, 'system_control', {
+        action: 'tail_logs',
+        filter: typeof plugin?.pluginName === 'string' ? plugin.pluginName : undefined,
+        maxLines: 100
+      }) as Record<string, unknown>;
+
+      return cleanObject({
+        success: true,
+        summary,
+        configChecks,
+        widgetChecks,
+        objectChecks,
+        logChecks
+      });
+    }
 
     case 'get_components': {
       const actorName = await resolveObjectPath(args, tools, { pathKeys: [], actorKeys: ['actorName', 'name', 'objectPath'] });
@@ -662,6 +971,13 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
     case 'get_editor_settings': {
       const res = await executeAutomationRequest(tools, 'inspect', {
         action: 'get_editor_settings',
+        ...normalizedArgs
+      });
+      return cleanObject(res) as Record<string, unknown>;
+    }
+    case 'get_mount_points': {
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        action: 'get_mount_points',
         ...normalizedArgs
       });
       return cleanObject(res) as Record<string, unknown>;

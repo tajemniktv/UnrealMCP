@@ -3,6 +3,7 @@
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeSubsystem.h"
 #include "Misc/ConfigCacheIni.h"
+#include "Misc/PackageName.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
@@ -1014,6 +1015,7 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
   const bool bIsGlobalAction = 
     LowerSubAction.Equals(TEXT("get_project_settings")) ||
     LowerSubAction.Equals(TEXT("get_editor_settings")) ||
+    LowerSubAction.Equals(TEXT("get_mount_points")) ||
     LowerSubAction.Equals(TEXT("get_world_settings")) ||
     LowerSubAction.Equals(TEXT("get_viewport_info")) ||
     LowerSubAction.Equals(TEXT("get_selected_actors")) ||
@@ -1042,6 +1044,13 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
   if (bIsActorAction) {
     // These actions are handled by HandleControlActorAction - delegate directly
     return HandleControlActorAction(RequestId, TEXT("control_actor"), Payload, RequestingSocket);
+  }
+
+  if (LowerSubAction.Equals(TEXT("upsert_mod_config_property"))) {
+    return HandleUpsertModConfigProperty(RequestId, Payload, RequestingSocket);
+  }
+  if (LowerSubAction.Equals(TEXT("get_mod_config_tree"))) {
+    return HandleGetModConfigTree(RequestId, Payload, RequestingSocket);
   }
 
   // Only require objectPath for non-global actions
@@ -1079,6 +1088,23 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
       Resp->SetBoolField(TEXT("success"), true);
       SendAutomationResponse(RequestingSocket, RequestId, true,
                              TEXT("Editor settings retrieved"), Resp, FString());
+      return true;
+    }
+    else if (LowerSubAction.Equals(TEXT("get_mount_points"))) {
+      TArray<FString> RootPaths;
+      FPackageName::QueryRootContentPaths(RootPaths);
+      RootPaths.Sort();
+
+      TArray<TSharedPtr<FJsonValue>> RootsArray;
+      for (const FString& RootPath : RootPaths) {
+        RootsArray.Add(MakeShared<FJsonValueString>(RootPath));
+      }
+
+      Resp->SetArrayField(TEXT("mountPoints"), RootsArray);
+      Resp->SetNumberField(TEXT("count"), RootPaths.Num());
+      Resp->SetBoolField(TEXT("success"), true);
+      SendAutomationResponse(RequestingSocket, RequestId, true,
+                             TEXT("Mount points retrieved"), Resp, FString());
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("get_world_settings"))) {

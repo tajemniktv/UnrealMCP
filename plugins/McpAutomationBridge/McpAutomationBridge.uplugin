@@ -130,6 +130,11 @@
       "Name": "OnlineSubsystemUtils",
       "Enabled": true,
       "Optional": true
+    },
+    {
+      "Name": "SML",
+      "Enabled": true,
+      "Optional": true
     }
   ]
 }

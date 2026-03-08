@@ -5,6 +5,7 @@ import { executeAutomationRequest } from './common-handlers.js';
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import { findProjectContext, findPluginDescriptorByName, findPluginDescriptorByRoot, listPluginDescriptors, listTargetFiles, summarizeDescriptor } from './modding-utils.js';
 
 function validateUbtArgumentsString(extraArgs: string): void {
   if (!extraArgs || typeof extraArgs !== 'string') {
@@ -69,6 +70,23 @@ function tokenizeArgs(extraArgs: string): string[] {
 
 export async function handlePipelineTools(action: string, args: PipelineArgs, tools: ITools) {
   switch (action) {
+    case 'get_mod_build_targets': {
+      const context = findProjectContext();
+      const mountRoot = typeof (args as Record<string, unknown>).mountRoot === 'string' ? (args as Record<string, unknown>).mountRoot as string : undefined;
+      const pluginName = typeof (args as Record<string, unknown>).pluginName === 'string' ? (args as Record<string, unknown>).pluginName as string : undefined;
+      const plugin = findPluginDescriptorByRoot(context.repoRoot, mountRoot) ?? findPluginDescriptorByName(context.repoRoot, pluginName);
+      const targets = listTargetFiles(context.repoRoot);
+      return cleanObject({
+        success: true,
+        projectFile: context.projectFile,
+        projectName: context.projectName,
+        plugin: plugin ? summarizeDescriptor(plugin) : null,
+        buildTargets: targets,
+        suggestedEditorTarget: targets.find((entry) => /Editor$/i.test(entry.name))?.name ?? null,
+        suggestedGameTargets: targets.filter((entry) => /(FactoryGame|FactoryGameSteam|FactoryGameEGS)$/i.test(entry.name)).map((entry) => entry.name),
+        availableMods: listPluginDescriptors(context.repoRoot).map(summarizeDescriptor)
+      });
+    }
     case 'run_ubt': {
       const target = args.target;
       const platform = args.platform || 'Win64';
@@ -184,6 +202,91 @@ export async function handlePipelineTools(action: string, args: PipelineArgs, to
             message: `Failed to spawn UnrealBuildTool: ${err.message}`,
             command: `${ubtPath} ${quotedArgs.join(' ')}`
           });
+        });
+      });
+    }
+    case 'build_mod': {
+      const context = findProjectContext();
+      const argsRecord = args as Record<string, unknown>;
+      const mountRoot = typeof argsRecord.mountRoot === 'string' ? argsRecord.mountRoot : undefined;
+      const pluginName = typeof argsRecord.pluginName === 'string' ? argsRecord.pluginName : undefined;
+      const plugin = findPluginDescriptorByRoot(context.repoRoot, mountRoot) ?? findPluginDescriptorByName(context.repoRoot, pluginName);
+      const target = typeof args.target === 'string' && args.target.trim().length > 0
+        ? args.target.trim()
+        : (listTargetFiles(context.repoRoot).find((entry) => /Editor$/i.test(entry.name))?.name ?? 'FactoryEditor');
+      const configuration = args.configuration || 'Development';
+      const platform = args.platform || 'Win64';
+      const extraArgs = args.arguments || '';
+      const pluginArg = plugin ? `-ModuleWithSuffix=${plugin.pluginName},MCP` : '';
+      return await handlePipelineTools('run_ubt', {
+        ...args,
+        target,
+        configuration,
+        platform,
+        projectPath: context.projectFile,
+        arguments: `${extraArgs} ${pluginArg}`.trim()
+      }, tools);
+    }
+    case 'package_mod': {
+      const context = findProjectContext();
+      const argsRecord = args as Record<string, unknown>;
+      const mountRoot = typeof argsRecord.mountRoot === 'string' ? argsRecord.mountRoot : undefined;
+      const pluginName = typeof argsRecord.pluginName === 'string' ? argsRecord.pluginName : undefined;
+      const plugin = findPluginDescriptorByRoot(context.repoRoot, mountRoot) ?? findPluginDescriptorByName(context.repoRoot, pluginName);
+      if (!plugin || !context.projectFile) {
+        return cleanObject({
+          success: false,
+          error: 'PLUGIN_NOT_FOUND',
+          message: 'package_mod requires a resolvable pluginName or mountRoot and a .uproject context'
+        });
+      }
+
+      const enginePath = process.env.UE_ENGINE_PATH || process.env.UNREAL_ENGINE_PATH;
+      if (!enginePath) {
+        return cleanObject({
+          success: false,
+          error: 'UE_ENGINE_PATH_MISSING',
+          message: 'UE_ENGINE_PATH or UNREAL_ENGINE_PATH must be set to package a mod'
+        });
+      }
+
+      const runUat = path.join(enginePath, 'Engine', 'Build', 'BatchFiles', 'RunUAT.bat');
+      const platform = args.platform || 'Windows';
+      const configuration = args.configuration || 'Development';
+      const commandArgs = [
+        'PackagePlugin',
+        `-ScriptsForProject=${context.projectFile}`,
+        `-Project=${context.projectFile}`,
+        `-DLCName=${plugin.pluginName}`,
+        `-clientconfig=${configuration}`,
+        `-platform=${platform}`
+      ];
+
+      return new Promise((resolve) => {
+        const child = spawn(runUat, commandArgs, { shell: false });
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (data) => { stdout += data.toString(); });
+        child.stderr.on('data', (data) => { stderr += data.toString(); });
+        child.on('close', (code) => {
+          resolve(cleanObject({
+            success: code === 0,
+            message: code === 0 ? `Packaged ${plugin.pluginName}` : `Packaging failed with code ${code}`,
+            plugin: summarizeDescriptor(plugin),
+            command: `${runUat} ${commandArgs.join(' ')}`,
+            output: stdout,
+            errorOutput: stderr
+          }));
+        });
+        child.on('error', (error) => {
+          resolve(cleanObject({
+            success: false,
+            error: 'SPAWN_FAILED',
+            message: error.message,
+            plugin: summarizeDescriptor(plugin),
+            command: `${runUat} ${commandArgs.join(' ')}`
+          }));
         });
       });
     }

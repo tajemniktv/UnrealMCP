@@ -25,6 +25,7 @@ export class ResourceRegistry {
             return {
                 resources: [
                     { uri: 'ue://assets', name: 'Assets', description: 'Project, engine, and mounted mod/plugin assets', mimeType: 'application/json' },
+                    { uri: 'ue://mods', name: 'Mods', description: 'Installed project mods/plugins and descriptor summaries', mimeType: 'application/json' },
                     { uri: 'ue://actors', name: 'Actors', description: 'Actors in the current level', mimeType: 'application/json' },
                     { uri: 'ue://level', name: 'Current Level', description: 'Current level name and path', mimeType: 'application/json' },
                     { uri: 'ue://health', name: 'Health Status', description: 'Server health and performance metrics', mimeType: 'application/json' },

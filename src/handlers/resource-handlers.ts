@@ -6,6 +6,7 @@ import { AssetResources } from '../resources/assets.js';
 import { ActorResources } from '../resources/actors.js';
 import { LevelResources } from '../resources/levels.js';
 import { HealthMonitor } from '../services/health-monitor.js';
+import { findPluginDescriptorByRoot, findProjectContext, listPluginDescriptors, summarizeDescriptor } from '../tools/handlers/modding-utils.js';
 
 export class ResourceHandler {
   constructor(
@@ -28,7 +29,7 @@ export class ResourceHandler {
         if (!ok) {
           return { contents: [{ uri, mimeType: 'text/plain', text: 'Unreal Engine not connected (after 3 attempts).' }] };
         }
-        const roots = this.assetResources.getDefaultRoots();
+        const roots = await this.assetResources.getMountedRoots();
         const listings = await Promise.all(roots.map(async (root) => ({
           root,
           listing: await this.assetResources.list(root, true)
@@ -38,6 +39,60 @@ export class ResourceHandler {
             uri,
             mimeType: 'application/json',
             text: JSON.stringify({ mountedRoots: roots, roots: listings }, null, 2)
+          }]
+        };
+      }
+
+      if (uri === 'ue://mods') {
+        const context = findProjectContext();
+        const mods = listPluginDescriptors(context.repoRoot).map((descriptor) => summarizeDescriptor(descriptor));
+        return {
+          contents: [{
+            uri,
+            mimeType: 'application/json',
+            text: JSON.stringify({
+              projectFile: context.projectFile,
+              projectName: context.projectName,
+              mods
+            }, null, 2)
+          }]
+        };
+      }
+
+      if (uri.startsWith('ue://mods/')) {
+        const rawRoot = decodeURIComponent(uri.substring('ue://mods/'.length));
+        const mountRoot = rawRoot.startsWith('/') ? rawRoot : `/${rawRoot}`;
+        const context = findProjectContext();
+        const plugin = findPluginDescriptorByRoot(context.repoRoot, mountRoot);
+
+        if (!plugin) {
+          return {
+            contents: [{
+              uri,
+              mimeType: 'application/json',
+              text: JSON.stringify({
+                success: false,
+                error: 'MOD_NOT_FOUND',
+                mountRoot,
+                message: `No mod/plugin descriptor found for mount root ${mountRoot}`
+              }, null, 2)
+            }]
+          };
+        }
+
+        const ok = await this.ensureConnected();
+        const assets = ok ? await this.assetResources.list(mountRoot, true) : [];
+        return {
+          contents: [{
+            uri,
+            mimeType: 'application/json',
+            text: JSON.stringify({
+              success: true,
+              mod: summarizeDescriptor(plugin),
+              mountedRoot: mountRoot,
+              connectedToUnreal: ok,
+              assets
+            }, null, 2)
           }]
         };
       }

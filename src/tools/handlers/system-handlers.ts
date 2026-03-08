@@ -2,6 +2,8 @@ import { cleanObject } from '../../utils/safe-json.js';
 import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, SystemArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest } from './common-handlers.js';
+import fs from 'node:fs';
+import { getCandidateLogFiles } from './modding-utils.js';
 
 /** Response from various operations */
 interface OperationResponse {
@@ -645,6 +647,38 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
     }
     case 'read_log':
       return cleanObject(await tools.logTools.readOutputLog(args as Record<string, unknown>));
+    case 'tail_logs': {
+      const argsRecord = argsTyped as Record<string, unknown>;
+      const requestedPath = typeof argsRecord.logPath === 'string' ? argsRecord.logPath.trim() : '';
+      const filter = typeof argsRecord.filter === 'string' ? argsRecord.filter.trim().toLowerCase() : '';
+      const maxLines = typeof argsRecord.maxLines === 'number' ? argsRecord.maxLines as number : 200;
+      const candidatePaths = requestedPath ? [requestedPath] : getCandidateLogFiles(process.cwd());
+      const logPath = candidatePaths.find((candidate) => fs.existsSync(candidate));
+
+      if (!logPath) {
+        return cleanObject({
+          success: false,
+          error: 'LOG_NOT_FOUND',
+          message: 'No candidate log file was found',
+          candidates: candidatePaths
+        });
+      }
+
+      const content = fs.readFileSync(logPath, 'utf8');
+      let lines = content.split(/\r?\n/);
+      if (filter) {
+        lines = lines.filter((line) => line.toLowerCase().includes(filter));
+      }
+      const tail = lines.slice(Math.max(0, lines.length - maxLines));
+      return cleanObject({
+        success: true,
+        message: `Read ${tail.length} log line(s) from ${logPath}`,
+        logPath,
+        totalLines: lines.length,
+        lines: tail,
+        text: tail.join('\n')
+      });
+    }
     case 'export_asset': {
       // Export asset to FBX/OBJ format
       // This requires editor-only functionality

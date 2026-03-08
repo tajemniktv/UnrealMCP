@@ -139,6 +139,7 @@ export interface AssetArgs extends HandlerArgs {
     // Metadata
     metadata?: Record<string, unknown>;
     tags?: string[];
+    mountRoot?: string;
 }
 
 // ============================================================================
@@ -218,6 +219,7 @@ export interface BlueprintArgs extends HandlerArgs {
     waitForCompletion?: boolean;
     waitForCompletionTimeoutMs?: number;
     shouldExist?: boolean;
+    mountRoot?: string;
     // Parent class for blueprint creation
     parentClass?: string;
     // SCS operations array
@@ -547,6 +549,21 @@ export interface InspectArgs extends HandlerArgs {
     propertyName?: string;
     propertyPath?: string;
     value?: unknown;
+    key?: string;
+    section?: string;
+    propertyType?: string;
+    displayName?: string;
+    tooltip?: string;
+    requiresWorldReload?: boolean;
+    hidden?: boolean;
+    mountPoints?: string[];
+    mountRoot?: string;
+    pluginName?: string;
+    targetSection?: string;
+    newKey?: string;
+    newSection?: string;
+    logPath?: string;
+    maxLines?: number;
     className?: string;
     classPath?: string;
     filter?: string;
@@ -615,6 +632,8 @@ export interface SystemArgs extends HandlerArgs {
     platform?: string;
     configuration?: string;
     arguments?: string;
+    logPath?: string;
+    maxLines?: number;
 }
 
 // ============================================================================
