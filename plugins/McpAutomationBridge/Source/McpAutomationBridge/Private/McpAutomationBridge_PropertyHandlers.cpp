@@ -152,6 +152,36 @@ static UBlueprint* ResolveBlueprintForObject(UObject* Object) {
   return Object->GetClass() ? Cast<UBlueprint>(Object->GetClass()->ClassGeneratedBy) : nullptr;
 }
 
+static bool ResolveModConfigurationBlueprint(
+    const FString& ObjectPath,
+    UBlueprint*& OutBlueprint,
+    UModConfiguration*& OutConfigObject,
+    FString& OutError,
+    FString& OutErrorCode) {
+  UObject* ResolvedObject = ResolveObjectFromPath(ObjectPath);
+  OutBlueprint = ResolveBlueprintForObject(ResolvedObject);
+  if (!OutBlueprint || !OutBlueprint->GeneratedClass) {
+    OutError = FString::Printf(TEXT("Unable to resolve a Blueprint-backed object from '%s'."), *ObjectPath);
+    OutErrorCode = TEXT("BLUEPRINT_NOT_FOUND");
+    return false;
+  }
+
+  if (!OutBlueprint->GeneratedClass->IsChildOf(UModConfiguration::StaticClass())) {
+    OutError = FString::Printf(TEXT("Resolved blueprint '%s' is not a UModConfiguration."), *OutBlueprint->GetPathName());
+    OutErrorCode = TEXT("INVALID_CONFIG_BLUEPRINT");
+    return false;
+  }
+
+  OutConfigObject = Cast<UModConfiguration>(OutBlueprint->GeneratedClass->GetDefaultObject());
+  if (!OutConfigObject) {
+    OutError = TEXT("Unable to resolve config default object.");
+    OutErrorCode = TEXT("CONFIG_OBJECT_NOT_FOUND");
+    return false;
+  }
+
+  return true;
+}
+
 static TArray<FString> SplitSectionPath(const FString& SectionPath) {
   FString Normalized = SectionPath.TrimStartAndEnd();
   Normalized.ReplaceInline(TEXT("\\"), TEXT("/"));
@@ -208,6 +238,66 @@ static UConfigPropertySection* FindOrCreateSection(
   return CurrentSection;
 }
 
+static UConfigPropertySection* FindExistingSection(
+    UConfigPropertySection* RootSection,
+    const TArray<FString>& SectionPath,
+    FString& OutError) {
+  if (!RootSection) {
+    OutError = TEXT("Config root section is missing.");
+    return nullptr;
+  }
+
+  UConfigPropertySection* CurrentSection = RootSection;
+  for (const FString& Segment : SectionPath) {
+    if (!IsValidConfigIdentifier(Segment)) {
+      OutError = FString::Printf(TEXT("Invalid section name '%s'. Use letters, numbers, and underscores only."), *Segment);
+      return nullptr;
+    }
+
+    UConfigProperty** ExistingProperty = CurrentSection->SectionProperties.Find(Segment);
+    if (!ExistingProperty) {
+      OutError = FString::Printf(TEXT("Section '%s' does not exist."), *Segment);
+      return nullptr;
+    }
+
+    UConfigPropertySection* ExistingSection = Cast<UConfigPropertySection>(*ExistingProperty);
+    if (!ExistingSection) {
+      OutError = FString::Printf(TEXT("Section path '%s' collides with a non-section config property."), *Segment);
+      return nullptr;
+    }
+
+    CurrentSection = ExistingSection;
+  }
+
+  return CurrentSection;
+}
+
+static bool ResolveSectionParent(
+    UConfigPropertySection* RootSection,
+    const FString& SectionName,
+    UConfigPropertySection*& OutParentSection,
+    FString& OutLeafName,
+    FString& OutError) {
+  const TArray<FString> SectionPath = SplitSectionPath(SectionName);
+  if (SectionPath.Num() == 0) {
+    OutError = TEXT("section is required.");
+    return false;
+  }
+
+  OutLeafName = SectionPath.Last();
+  if (!IsValidConfigIdentifier(OutLeafName)) {
+    OutError = FString::Printf(TEXT("Invalid section name '%s'. Use letters, numbers, and underscores only."), *OutLeafName);
+    return false;
+  }
+
+  TArray<FString> ParentPath = SectionPath;
+  ParentPath.Pop();
+  OutParentSection = ParentPath.Num() == 0
+      ? RootSection
+      : FindExistingSection(RootSection, ParentPath, OutError);
+  return OutParentSection != nullptr;
+}
+
 static UConfigProperty* CreateTypedConfigProperty(
     UObject* Outer,
     const FString& Key,
@@ -231,6 +321,38 @@ static UConfigProperty* CreateTypedConfigProperty(
                                     MakeUniqueObjectName(Outer, PropertyClass,
                                                          *FString::Printf(TEXT("%s_Property"), *Key)),
                                     RF_Public | RF_Transactional);
+}
+
+static bool FinalizeConfigBlueprintEdit(
+    UBlueprint* Blueprint,
+    UModConfiguration* ConfigObject,
+    bool bStructuralChange,
+    TSharedPtr<FJsonObject> ResultPayload) {
+  if (!Blueprint || !ConfigObject) {
+    return false;
+  }
+
+  ConfigObject->MarkPackageDirty();
+  Blueprint->MarkPackageDirty();
+  if (UPackage* BlueprintPackage = Blueprint->GetOutermost()) {
+    BlueprintPackage->MarkPackageDirty();
+  }
+
+  if (bStructuralChange) {
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+  } else {
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+  }
+
+  const bool bCompiled = McpSafeCompileBlueprint(Blueprint);
+  if (ResultPayload.IsValid()) {
+    ResultPayload->SetBoolField(TEXT("compiled"), bCompiled);
+    ResultPayload->SetBoolField(TEXT("structuralChange"), bStructuralChange);
+    ResultPayload->SetStringField(TEXT("resolvedBlueprintPath"), Blueprint->GetPathName());
+    ResultPayload->SetStringField(TEXT("resolvedConfigClassPath"), Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetPathName() : FString());
+    AddAssetVerification(ResultPayload, Blueprint);
+  }
+  return bCompiled;
 }
 
 static TSharedPtr<FJsonObject> SerializeConfigPropertyTree(
@@ -887,6 +1009,498 @@ bool UMcpAutomationBridgeSubsystem::HandleGetModConfigTree(
   SendAutomationResponse(RequestingSocket, RequestId, true,
                          TEXT("Mod config tree retrieved."), ResultPayload,
                          FString());
+  return true;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleEnsureModConfigSection(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("ensure_mod_config_section requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#elif !MCP_WITH_SML
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("SML module is not available in this project."),
+                      TEXT("SML_NOT_AVAILABLE"));
+  return true;
+#else
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("ensure_mod_config_section payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString ObjectPath;
+  FString SectionName;
+  if (!Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) || ObjectPath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("objectPath is required."), TEXT("INVALID_OBJECT"));
+    return true;
+  }
+  if (!Payload->TryGetStringField(TEXT("section"), SectionName) || SectionName.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("section is required."), TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  UBlueprint* Blueprint = nullptr;
+  UModConfiguration* ConfigObject = nullptr;
+  FString ErrorMessage;
+  FString ErrorCode;
+  if (!ResolveModConfigurationBlueprint(ObjectPath, Blueprint, ConfigObject, ErrorMessage, ErrorCode)) {
+    SendAutomationError(RequestingSocket, RequestId, ErrorMessage, ErrorCode);
+    return true;
+  }
+
+  bool bStructuralChange = false;
+  Blueprint->Modify();
+  ConfigObject->Modify();
+  if (!ConfigObject->RootSection) {
+    ConfigObject->RootSection = NewObject<UConfigPropertySection>(ConfigObject, UConfigPropertySection::StaticClass(),
+                                                                 TEXT("RootSection"), RF_Public | RF_Transactional);
+    ConfigObject->RootSection->DisplayName = FText::FromString(TEXT("Root"));
+    bStructuralChange = true;
+  }
+
+  FString SectionError;
+  bool bCreatedSection = false;
+  UConfigPropertySection* TargetSection =
+      FindOrCreateSection(ConfigObject->RootSection, SplitSectionPath(SectionName), bCreatedSection, SectionError);
+  if (!TargetSection) {
+    SendAutomationError(RequestingSocket, RequestId, SectionError, TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("objectPath"), ObjectPath);
+  ResultPayload->SetStringField(TEXT("section"), SectionName);
+  ResultPayload->SetBoolField(TEXT("created"), bCreatedSection);
+  ResultPayload->SetStringField(TEXT("sectionPath"), TargetSection->GetPathName());
+  FinalizeConfigBlueprintEdit(Blueprint, ConfigObject, bStructuralChange || bCreatedSection, ResultPayload);
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         bCreatedSection ? TEXT("Config section created.") : TEXT("Config section already exists."),
+                         ResultPayload, FString());
+  return true;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleDeleteModConfigProperty(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("delete_mod_config_property requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#elif !MCP_WITH_SML
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("SML module is not available in this project."),
+                      TEXT("SML_NOT_AVAILABLE"));
+  return true;
+#else
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("delete_mod_config_property payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString ObjectPath;
+  FString SectionName;
+  FString Key;
+  if (!Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) || ObjectPath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("objectPath is required."), TEXT("INVALID_OBJECT"));
+    return true;
+  }
+  Payload->TryGetStringField(TEXT("section"), SectionName);
+  if (!Payload->TryGetStringField(TEXT("key"), Key) || !IsValidConfigIdentifier(Key.TrimStartAndEnd())) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("key is required and must contain only letters, numbers, or underscores."),
+                        TEXT("INVALID_KEY"));
+    return true;
+  }
+  Key = Key.TrimStartAndEnd();
+
+  UBlueprint* Blueprint = nullptr;
+  UModConfiguration* ConfigObject = nullptr;
+  FString ErrorMessage;
+  FString ErrorCode;
+  if (!ResolveModConfigurationBlueprint(ObjectPath, Blueprint, ConfigObject, ErrorMessage, ErrorCode)) {
+    SendAutomationError(RequestingSocket, RequestId, ErrorMessage, ErrorCode);
+    return true;
+  }
+  if (!ConfigObject->RootSection) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("Config root section is missing."), TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  FString SectionError;
+  UConfigPropertySection* TargetSection = FindExistingSection(ConfigObject->RootSection, SplitSectionPath(SectionName), SectionError);
+  if (!TargetSection) {
+    SendAutomationError(RequestingSocket, RequestId, SectionError, TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  UConfigProperty** ExistingProperty = TargetSection->SectionProperties.Find(Key);
+  if (!ExistingProperty) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Property '%s' does not exist in section '%s'."), *Key, *SectionName),
+                        TEXT("PROPERTY_NOT_FOUND"));
+    return true;
+  }
+
+  TargetSection->Modify();
+  TargetSection->SectionProperties.Remove(Key);
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("objectPath"), ObjectPath);
+  ResultPayload->SetStringField(TEXT("section"), SectionName);
+  ResultPayload->SetStringField(TEXT("key"), Key);
+  FinalizeConfigBlueprintEdit(Blueprint, ConfigObject, true, ResultPayload);
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         TEXT("Mod config property deleted."), ResultPayload, FString());
+  return true;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleRenameModConfigProperty(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("rename_mod_config_property requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#elif !MCP_WITH_SML
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("SML module is not available in this project."),
+                      TEXT("SML_NOT_AVAILABLE"));
+  return true;
+#else
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("rename_mod_config_property payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString ObjectPath;
+  FString SectionName;
+  FString TargetSectionName;
+  FString Key;
+  FString NewKey;
+  if (!Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) || ObjectPath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("objectPath is required."), TEXT("INVALID_OBJECT"));
+    return true;
+  }
+  Payload->TryGetStringField(TEXT("section"), SectionName);
+  Payload->TryGetStringField(TEXT("targetSection"), TargetSectionName);
+  if (!Payload->TryGetStringField(TEXT("key"), Key) || !IsValidConfigIdentifier(Key.TrimStartAndEnd())) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("key is required and must contain only letters, numbers, or underscores."),
+                        TEXT("INVALID_KEY"));
+    return true;
+  }
+  if (!Payload->TryGetStringField(TEXT("newKey"), NewKey) || !IsValidConfigIdentifier(NewKey.TrimStartAndEnd())) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("newKey is required and must contain only letters, numbers, or underscores."),
+                        TEXT("INVALID_KEY"));
+    return true;
+  }
+  Key = Key.TrimStartAndEnd();
+  NewKey = NewKey.TrimStartAndEnd();
+  if (TargetSectionName.TrimStartAndEnd().IsEmpty()) {
+    TargetSectionName = SectionName;
+  }
+
+  UBlueprint* Blueprint = nullptr;
+  UModConfiguration* ConfigObject = nullptr;
+  FString ErrorMessage;
+  FString ErrorCode;
+  if (!ResolveModConfigurationBlueprint(ObjectPath, Blueprint, ConfigObject, ErrorMessage, ErrorCode)) {
+    SendAutomationError(RequestingSocket, RequestId, ErrorMessage, ErrorCode);
+    return true;
+  }
+  if (!ConfigObject->RootSection) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("Config root section is missing."), TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  FString SourceSectionError;
+  UConfigPropertySection* SourceSection = FindExistingSection(ConfigObject->RootSection, SplitSectionPath(SectionName), SourceSectionError);
+  if (!SourceSection) {
+    SendAutomationError(RequestingSocket, RequestId, SourceSectionError, TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  UConfigProperty** SourcePropertyPtr = SourceSection->SectionProperties.Find(Key);
+  if (!SourcePropertyPtr || !*SourcePropertyPtr) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Property '%s' does not exist in section '%s'."), *Key, *SectionName),
+                        TEXT("PROPERTY_NOT_FOUND"));
+    return true;
+  }
+
+  FString TargetSectionError;
+  bool bCreatedTargetSection = false;
+  UConfigPropertySection* TargetSection =
+      FindOrCreateSection(ConfigObject->RootSection, SplitSectionPath(TargetSectionName), bCreatedTargetSection, TargetSectionError);
+  if (!TargetSection) {
+    SendAutomationError(RequestingSocket, RequestId, TargetSectionError, TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  if (TargetSection->SectionProperties.Contains(NewKey)) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Target section already contains a property named '%s'."), *NewKey),
+                        TEXT("PROPERTY_ALREADY_EXISTS"));
+    return true;
+  }
+
+  UConfigProperty* SourceProperty = *SourcePropertyPtr;
+  SourceSection->Modify();
+  TargetSection->Modify();
+
+  bool bStructuralChange = bCreatedTargetSection;
+  if (SourceSection == TargetSection) {
+    SourceSection->SectionProperties.Remove(Key);
+    TargetSection->SectionProperties.Add(NewKey, SourceProperty);
+    if (SourceProperty->DisplayName.IsEmptyOrWhitespace()) {
+      SourceProperty->DisplayName = FText::FromString(NewKey);
+    }
+  } else {
+    UConfigProperty* MovedProperty = DuplicateObject<UConfigProperty>(SourceProperty, TargetSection);
+    if (!MovedProperty) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Unable to duplicate config property into target section."),
+                          TEXT("PROPERTY_MOVE_FAILED"));
+      return true;
+    }
+    TargetSection->SectionProperties.Add(NewKey, MovedProperty);
+    SourceSection->SectionProperties.Remove(Key);
+    bStructuralChange = true;
+  }
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("objectPath"), ObjectPath);
+  ResultPayload->SetStringField(TEXT("section"), SectionName);
+  ResultPayload->SetStringField(TEXT("targetSection"), TargetSectionName);
+  ResultPayload->SetStringField(TEXT("key"), Key);
+  ResultPayload->SetStringField(TEXT("newKey"), NewKey);
+  ResultPayload->SetBoolField(TEXT("moved"), SourceSection != TargetSection);
+  FinalizeConfigBlueprintEdit(Blueprint, ConfigObject, bStructuralChange, ResultPayload);
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         SourceSection == TargetSection ? TEXT("Mod config property renamed.") : TEXT("Mod config property moved."),
+                         ResultPayload, FString());
+  return true;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleDeleteModConfigSection(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("delete_mod_config_section requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#elif !MCP_WITH_SML
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("SML module is not available in this project."),
+                      TEXT("SML_NOT_AVAILABLE"));
+  return true;
+#else
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("delete_mod_config_section payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString ObjectPath;
+  FString SectionName;
+  if (!Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) || ObjectPath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("objectPath is required."), TEXT("INVALID_OBJECT"));
+    return true;
+  }
+  if (!Payload->TryGetStringField(TEXT("section"), SectionName) || SectionName.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("section is required."), TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  UBlueprint* Blueprint = nullptr;
+  UModConfiguration* ConfigObject = nullptr;
+  FString ErrorMessage;
+  FString ErrorCode;
+  if (!ResolveModConfigurationBlueprint(ObjectPath, Blueprint, ConfigObject, ErrorMessage, ErrorCode)) {
+    SendAutomationError(RequestingSocket, RequestId, ErrorMessage, ErrorCode);
+    return true;
+  }
+  if (!ConfigObject->RootSection) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("Config root section is missing."), TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  FString LeafName;
+  FString ParentError;
+  UConfigPropertySection* ParentSection = nullptr;
+  if (!ResolveSectionParent(ConfigObject->RootSection, SectionName, ParentSection, LeafName, ParentError)) {
+    SendAutomationError(RequestingSocket, RequestId, ParentError, TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  UConfigProperty** ExistingProperty = ParentSection->SectionProperties.Find(LeafName);
+  UConfigPropertySection* ExistingSection = ExistingProperty ? Cast<UConfigPropertySection>(*ExistingProperty) : nullptr;
+  if (!ExistingSection) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Section '%s' does not exist."), *SectionName),
+                        TEXT("SECTION_NOT_FOUND"));
+    return true;
+  }
+
+  ParentSection->Modify();
+  ParentSection->SectionProperties.Remove(LeafName);
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("objectPath"), ObjectPath);
+  ResultPayload->SetStringField(TEXT("section"), SectionName);
+  FinalizeConfigBlueprintEdit(Blueprint, ConfigObject, true, ResultPayload);
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         TEXT("Mod config section deleted."), ResultPayload, FString());
+  return true;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleRenameModConfigSection(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("rename_mod_config_section requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#elif !MCP_WITH_SML
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("SML module is not available in this project."),
+                      TEXT("SML_NOT_AVAILABLE"));
+  return true;
+#else
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("rename_mod_config_section payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString ObjectPath;
+  FString SectionName;
+  FString NewSectionName;
+  FString TargetSectionName;
+  if (!Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) || ObjectPath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("objectPath is required."), TEXT("INVALID_OBJECT"));
+    return true;
+  }
+  if (!Payload->TryGetStringField(TEXT("section"), SectionName) || SectionName.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("section is required."), TEXT("INVALID_SECTION"));
+    return true;
+  }
+  if (!Payload->TryGetStringField(TEXT("newSection"), NewSectionName) || !IsValidConfigIdentifier(NewSectionName.TrimStartAndEnd())) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("newSection is required and must contain only letters, numbers, or underscores."),
+                        TEXT("INVALID_SECTION"));
+    return true;
+  }
+  Payload->TryGetStringField(TEXT("targetSection"), TargetSectionName);
+  NewSectionName = NewSectionName.TrimStartAndEnd();
+
+  UBlueprint* Blueprint = nullptr;
+  UModConfiguration* ConfigObject = nullptr;
+  FString ErrorMessage;
+  FString ErrorCode;
+  if (!ResolveModConfigurationBlueprint(ObjectPath, Blueprint, ConfigObject, ErrorMessage, ErrorCode)) {
+    SendAutomationError(RequestingSocket, RequestId, ErrorMessage, ErrorCode);
+    return true;
+  }
+  if (!ConfigObject->RootSection) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("Config root section is missing."), TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  FString SourceLeafName;
+  FString SourceParentError;
+  UConfigPropertySection* SourceParentSection = nullptr;
+  if (!ResolveSectionParent(ConfigObject->RootSection, SectionName, SourceParentSection, SourceLeafName, SourceParentError)) {
+    SendAutomationError(RequestingSocket, RequestId, SourceParentError, TEXT("INVALID_SECTION"));
+    return true;
+  }
+
+  UConfigProperty** SourcePropertyPtr = SourceParentSection->SectionProperties.Find(SourceLeafName);
+  UConfigPropertySection* SourceSection = SourcePropertyPtr ? Cast<UConfigPropertySection>(*SourcePropertyPtr) : nullptr;
+  if (!SourceSection) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Section '%s' does not exist."), *SectionName),
+                        TEXT("SECTION_NOT_FOUND"));
+    return true;
+  }
+
+  UConfigPropertySection* TargetParentSection = SourceParentSection;
+  bool bCreatedTargetParent = false;
+  if (!TargetSectionName.TrimStartAndEnd().IsEmpty()) {
+    FString TargetParentError;
+    TargetParentSection = FindOrCreateSection(ConfigObject->RootSection, SplitSectionPath(TargetSectionName), bCreatedTargetParent, TargetParentError);
+    if (!TargetParentSection) {
+      SendAutomationError(RequestingSocket, RequestId, TargetParentError, TEXT("INVALID_SECTION"));
+      return true;
+    }
+  }
+
+  if (TargetParentSection->SectionProperties.Contains(NewSectionName)) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        FString::Printf(TEXT("Target section already contains a child section named '%s'."), *NewSectionName),
+                        TEXT("SECTION_ALREADY_EXISTS"));
+    return true;
+  }
+
+  SourceParentSection->Modify();
+  TargetParentSection->Modify();
+
+  bool bStructuralChange = bCreatedTargetParent;
+  if (SourceParentSection == TargetParentSection) {
+    SourceParentSection->SectionProperties.Remove(SourceLeafName);
+    TargetParentSection->SectionProperties.Add(NewSectionName, SourceSection);
+    if (SourceSection->DisplayName.IsEmptyOrWhitespace()) {
+      SourceSection->DisplayName = FText::FromString(NewSectionName);
+    }
+  } else {
+    UConfigPropertySection* MovedSection = DuplicateObject<UConfigPropertySection>(SourceSection, TargetParentSection);
+    if (!MovedSection) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Unable to duplicate config section into target section."),
+                          TEXT("SECTION_MOVE_FAILED"));
+      return true;
+    }
+    TargetParentSection->SectionProperties.Add(NewSectionName, MovedSection);
+    SourceParentSection->SectionProperties.Remove(SourceLeafName);
+    bStructuralChange = true;
+  }
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("objectPath"), ObjectPath);
+  ResultPayload->SetStringField(TEXT("section"), SectionName);
+  ResultPayload->SetStringField(TEXT("newSection"), NewSectionName);
+  ResultPayload->SetStringField(TEXT("targetSection"), TargetSectionName);
+  ResultPayload->SetBoolField(TEXT("moved"), SourceParentSection != TargetParentSection);
+  FinalizeConfigBlueprintEdit(Blueprint, ConfigObject, bStructuralChange, ResultPayload);
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         SourceParentSection == TargetParentSection ? TEXT("Mod config section renamed.") : TEXT("Mod config section moved."),
+                         ResultPayload, FString());
   return true;
 #endif
 }

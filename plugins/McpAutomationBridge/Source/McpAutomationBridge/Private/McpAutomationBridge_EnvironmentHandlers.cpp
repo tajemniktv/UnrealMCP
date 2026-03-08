@@ -1052,6 +1052,22 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
   if (LowerSubAction.Equals(TEXT("get_mod_config_tree"))) {
     return HandleGetModConfigTree(RequestId, Payload, RequestingSocket);
   }
+  if (LowerSubAction.Equals(TEXT("ensure_mod_config_section"))) {
+    return HandleEnsureModConfigSection(RequestId, Payload, RequestingSocket);
+  }
+  if (LowerSubAction.Equals(TEXT("delete_mod_config_property"))) {
+    return HandleDeleteModConfigProperty(RequestId, Payload, RequestingSocket);
+  }
+  if (LowerSubAction.Equals(TEXT("rename_mod_config_property")) ||
+      LowerSubAction.Equals(TEXT("move_mod_config_property"))) {
+    return HandleRenameModConfigProperty(RequestId, Payload, RequestingSocket);
+  }
+  if (LowerSubAction.Equals(TEXT("delete_mod_config_section"))) {
+    return HandleDeleteModConfigSection(RequestId, Payload, RequestingSocket);
+  }
+  if (LowerSubAction.Equals(TEXT("rename_mod_config_section"))) {
+    return HandleRenameModConfigSection(RequestId, Payload, RequestingSocket);
+  }
 
   // Only require objectPath for non-global actions
   FString ObjectPath;

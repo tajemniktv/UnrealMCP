@@ -439,6 +439,75 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
 
       return cleanObject(res);
     }
+    case 'ensure_mod_config_section':
+    case 'delete_mod_config_property':
+    case 'delete_mod_config_section': {
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const params = normalizeArgs(args, [
+        { key: 'section' },
+        { key: 'key' }
+      ]);
+
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        action: normalizedAction,
+        objectPath,
+        section: extractOptionalString(params, 'section'),
+        key: extractOptionalString(params, 'key')
+      }) as InspectResponse;
+
+      return cleanObject(res);
+    }
+    case 'rename_mod_config_property':
+    case 'move_mod_config_property': {
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const params = normalizeArgs(args, [
+        { key: 'section' },
+        { key: 'key', required: true },
+        { key: 'newKey', required: true },
+        { key: 'targetSection' }
+      ]);
+
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        action: normalizedAction,
+        objectPath,
+        section: extractOptionalString(params, 'section'),
+        key: extractString(params, 'key'),
+        newKey: extractString(params, 'newKey'),
+        targetSection: extractOptionalString(params, 'targetSection')
+      }) as InspectResponse;
+
+      return cleanObject(res);
+    }
+    case 'rename_mod_config_section': {
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const params = normalizeArgs(args, [
+        { key: 'section', required: true },
+        { key: 'newSection', required: true },
+        { key: 'targetSection' }
+      ]);
+
+      const res = await executeAutomationRequest(tools, 'inspect', {
+        action: normalizedAction,
+        objectPath,
+        section: extractString(params, 'section'),
+        newSection: extractString(params, 'newSection'),
+        targetSection: extractOptionalString(params, 'targetSection')
+      }) as InspectResponse;
+
+      return cleanObject(res);
+    }
     case 'get_mod_config_tree': {
       const objectPath = await resolveObjectPath(args, tools);
       if (!objectPath) {

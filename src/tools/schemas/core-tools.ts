@@ -481,6 +481,8 @@ export const coreToolDefinitions: ToolDefinition[] = [
             'get_texture_details', 'get_material_details', 'get_level_details', 'get_component_details',
             'set_property', 'get_property',
             'upsert_mod_config_property', 'get_mod_config_tree',
+            'ensure_mod_config_section', 'delete_mod_config_property', 'rename_mod_config_property', 'move_mod_config_property',
+            'delete_mod_config_section', 'rename_mod_config_section',
             'resolve_mod_config_target', 'get_mod_config_descriptor', 'validate_mod_config',
             'resolve_blueprint_variants', 'inspect_blueprint_defaults', 'inspect_cdo',
             'inspect_widget_blueprint', 'get_widget_summary',
