@@ -30,7 +30,7 @@ A comprehensive Model Context Protocol (MCP) server that enables AI assistants t
 ## Features
 
 | Category | Capabilities |
-|----------|-------------|
+| ---------- | ------------- |
 | **Asset Management** | Browse, import, duplicate, rename, delete assets; create materials |
 | **Actor Control** | Spawn, delete, transform, physics, tags, components |
 | **Editor Control** | PIE sessions, camera, viewport, screenshots, bookmarks |
@@ -60,16 +60,18 @@ A comprehensive Model Context Protocol (MCP) server that enables AI assistants t
 ### Prerequisites
 
 - **Node.js** 18+
-- **Unreal Engine** 5.0–5.7
+- **Unreal Engine** 5.0 - 5.7
 
 ### Step 1: Install MCP Server
 
 **Option A: NPX (Recommended)**
+
 ```bash
 npx unreal-engine-mcp-server
 ```
 
 **Option B: Clone & Build**
+
 ```bash
 git clone https://github.com/ChiR24/Unreal_mcp.git
 cd Unreal_mcp
@@ -83,20 +85,23 @@ node dist/cli.js
 The MCP Automation Bridge plugin is included at `Unreal_mcp/plugins/McpAutomationBridge`.
 
 **Method 1: Copy Folder**
+
 ```
 Copy:  Unreal_mcp/plugins/McpAutomationBridge/
 To:    YourUnrealProject/Plugins/McpAutomationBridge/
 ```
+
 Regenerate project files after copying.
 
 **Method 2: Add in Editor**
+
 1. Open Unreal Editor → **Edit → Plugins**
 2. Click **"Add"** → Browse to `Unreal_mcp/plugins/`
 3. Select the `McpAutomationBridge` folder
 
 **Video Guide:**
 
-https://github.com/user-attachments/assets/d8b86ebc-4364-48c9-9781-de854bf3ef7d
+<https://github.com/user-attachments/assets/d8b86ebc-4364-48c9-9781-de854bf3ef7d>
 
 > ⚠️ **First-Time Project Open:** When opening the project directly (double-click `.uproject`) for the first time, UE will prompt *"Would you like to rebuild them now?"* for missing modules. Click **Yes** to rebuild. After the rebuild completes, you may still see: *"Plugin 'McpAutomationBridge' failed to load because module could not be loaded."* This is expected — UE rebuilds successfully but doesn't reload the plugin in the same session. **Simply close and reopen the project** and the plugin will load correctly. Alternatively, build via Visual Studio first to avoid this.
 
@@ -147,6 +152,7 @@ Enable via **Edit → Plugins**, then restart the editor.
 Add to your Claude Desktop / Cursor config file:
 
 **Using Clone/Build:**
+
 ```json
 {
   "mcpServers": {
@@ -163,6 +169,7 @@ Add to your Claude Desktop / Cursor config file:
 ```
 
 **Using NPX:**
+
 ```json
 {
   "mcpServers": {
@@ -209,12 +216,14 @@ ASSET_LIST_TTL_MS=10000
 By default, the automation bridge only binds to loopback addresses (127.0.0.1) for security. To enable access from other machines on your network:
 
 **TypeScript (MCP Server):**
+
 ```env
 MCP_AUTOMATION_ALLOW_NON_LOOPBACK=true
 MCP_AUTOMATION_HOST=0.0.0.0
 ```
 
 **Unreal Engine Plugin:**
+
 1. Go to **Edit → Project Settings → Plugins → MCP Automation Bridge**
 2. Under **Security**, enable **"Allow Non Loopback"**
 3. Under **Connection**, set **"Listen Host"** to `0.0.0.0`
@@ -227,6 +236,67 @@ MCP_AUTOMATION_HOST=0.0.0.0
 ## Available Tools
 
 **36 MCP tools** with action-based dispatch for comprehensive Unreal Engine automation.
+
+## Inspect Guide
+
+The local Satisfactory-oriented fork extends `inspect` into a read-only debugging surface for mounted roots, renderer triage, and mod validation.
+
+### Mounted Object Paths
+
+Mounted roots are treated as first-class object paths. These are valid:
+
+```text
+/Game/FactoryGame/...
+/Engine/EngineMaterials/...
+/TajsGraph/Materials/M_Factory.M_Factory
+/SML/BP_Config.BP_Config
+```
+
+The server preserves arbitrary plugin roots instead of rewriting them back to `/Game`.
+
+### Nested Property Paths
+
+`get_property` supports nested exported property traversal from the TypeScript layer, including array and map-like selectors:
+
+```text
+NaniteSettings.Enabled
+StaticMaterials[0].MaterialInterface
+StaticSwitchParameters[UseNanite]
+```
+
+### Renderer-Debugging Actions
+
+High-value read-only actions for modding and renderer investigation:
+
+- `get_material_summary`
+- `get_material_instance_summary`
+- `get_static_mesh_summary`
+- `get_renderer_pair_summary`
+- `get_component_render_state`
+- `get_actor_render_summary`
+- `get_viewport_render_summary`
+- `get_shader_artifact_summary`
+- `get_mod_render_debug_report`
+- `get_asset_dependency_slice`
+
+Typical flow:
+
+1. Start with `get_mod_render_debug_report` for a mount root such as `/TajsGraph`.
+2. Drill into `get_static_mesh_summary` and `get_material_summary` for suspicious assets.
+3. Use `get_renderer_pair_summary` to evaluate mesh/material pairing risks.
+4. Use `get_component_render_state` or `get_actor_render_summary` when the problem only shows up in-world.
+
+### Local Fork Deltas To Preserve
+
+When refreshing from upstream, reapply these local-fork deltas in this order:
+
+1. Verify fresh upstream TypeScript build.
+2. Verify fresh bridge compile.
+3. Reapply mounted-root TS validation and browsing support.
+4. Reapply mounted-root and inspect-routing bridge changes.
+5. Reapply optional SML config editing last.
+
+These deltas are required for Satisfactory modding workflows and should not be silently dropped during rebases.
 
 <details>
 <summary><b>Core Tools</b></summary>
@@ -313,7 +383,7 @@ MCP_AUTOMATION_HOST=0.0.0.0
 <summary><b>Networking & Sessions</b></summary>
 
 | Tool | Description |
-|------|-------------|
+| ------ | ------------- |
 | `manage_networking` | Replication, RPCs, network prediction |
 | `manage_game_framework` | Game modes, game states, player controllers, match flow |
 | `manage_sessions` | Sessions, split-screen, LAN, voice chat |
@@ -324,7 +394,6 @@ MCP_AUTOMATION_HOST=0.0.0.0
 Blueprints • Materials • Textures • Static Meshes • Skeletal Meshes • Levels • Sounds • Particles • Niagara Systems • Behavior Trees
 
 ---
-
 
 Optional GraphQL endpoint for complex queries. **Disabled by default.**
 
@@ -349,13 +418,12 @@ docker run -it --rm -e UE_PROJECT_PATH=/project unreal-mcp
 ## Documentation
 
 | Document | Description |
-|----------|-------------|
+| ---------- | ------------- |
 | [Handler Mappings](docs/handler-mapping.md) | TypeScript to C++ routing |
 | [GraphQL API](docs/GraphQL-API.md) | Query and mutation reference |
 | [Plugin Extension](docs/editor-plugin-extension.md) | C++ plugin architecture |
 | [Testing Guide](docs/testing-guide.md) | How to run and write tests |
 | [Roadmap](docs/Roadmap.md) | Development phases |
-
 
 ---
 
@@ -373,7 +441,7 @@ npm run test:all    # Run all tests
 ## Community
 
 | Resource | Description |
-|----------|-------------|
+| ---------- | ------------- |
 | [Project Roadmap](https://github.com/users/ChiR24/projects/3) | Track development progress across 47 phases |
 | [Discussions](https://github.com/ChiR24/Unreal_mcp/discussions) | Ask questions, share ideas, get help |
 | [Issues](https://github.com/ChiR24/Unreal_mcp/issues) | Report bugs and request features |
@@ -383,6 +451,7 @@ npm run test:all    # Run all tests
 ## Contributing
 
 Contributions welcome! Please:
+
 - Include reproduction steps for bugs
 - Keep PRs focused and small
 - Follow existing code style

@@ -734,7 +734,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'run_ubt', 'run_tests', 'subscribe', 'unsubscribe', 'spawn_category', 'start_session', 'lumen_update_scene',
             'play_sound', 'create_widget', 'show_widget', 'add_widget_child',
             'set_cvar', 'get_project_settings', 'validate_assets',
-            'set_project_setting', 'tail_logs'
+            'set_project_setting', 'tail_logs', 'tail_render_errors'
           ],
           description: 'Action'
         },
@@ -886,6 +886,12 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'inspect_object', 'get_actor_details', 'get_blueprint_details', 'get_mesh_details',
             'get_texture_details', 'get_material_details', 'get_level_details', 'get_component_details',
             'set_property', 'get_property',
+            'describe_class', 'list_properties', 'get_object_summary',
+            'get_material_summary', 'get_material_instance_summary', 'get_static_mesh_summary',
+            'get_renderer_pair_summary', 'find_components_by_mesh', 'find_components_by_material',
+            'get_component_render_state', 'get_actor_render_summary', 'get_viewport_render_summary',
+            'compare_mesh_material_layout', 'validate_replacement_compatibility',
+            'get_mod_render_debug_report', 'get_asset_dependency_slice', 'get_shader_artifact_summary',
             'upsert_mod_config_property', 'get_mod_config_tree',
             'ensure_mod_config_section', 'delete_mod_config_property', 'rename_mod_config_property', 'move_mod_config_property',
             'delete_mod_config_section', 'rename_mod_config_section',
@@ -896,7 +902,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'get_plugin_descriptor_summary', 'validate_mod_descriptor',
             'get_mod_summary', 'get_mod_workflow_summary',
             'prebuild_mod_check', 'postlaunch_mod_check',
-            'find_mod_objects', 'verify_mod_runtime',
+            'find_mod_objects', 'verify_mod_runtime', 'validate_mod_runtime',
             'get_components', 'get_component_property', 'set_component_property',
             'inspect_class', 'list_objects',
             'get_metadata', 'add_tag', 'find_by_tag',
@@ -910,6 +916,11 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         propertyName: commonSchemas.propertyName,
         propertyPath: commonSchemas.stringProp,
         value: commonSchemas.value,
+        meshPath: commonSchemas.meshPath,
+        materialPath: commonSchemas.materialPath,
+        sourceMeshPath: commonSchemas.meshPath,
+        replacementMeshPath: commonSchemas.meshPath,
+        materialMap: commonSchemas.objectProp,
         key: commonSchemas.stringProp,
         newKey: commonSchemas.stringProp,
         newSection: commonSchemas.stringProp,
@@ -925,6 +936,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         actorName: commonSchemas.actorName,
         name: commonSchemas.name,
         componentName: commonSchemas.componentName,
+        componentPath: commonSchemas.stringProp,
         className: commonSchemas.stringProp,
         classPath: commonSchemas.assetPath,
         tag: commonSchemas.tagName,
@@ -934,7 +946,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         outputPath: commonSchemas.outputPath,
         format: commonSchemas.stringProp,
         logPath: commonSchemas.stringProp,
-        maxLines: commonSchemas.numberProp
+        maxLines: commonSchemas.numberProp,
+        worldType: { type: 'string', enum: ['auto', 'editor', 'pie'], description: 'World selection hint for runtime queries. Defaults to auto.' }
       },
       required: ['action']
     },

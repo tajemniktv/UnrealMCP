@@ -1657,7 +1657,13 @@ bool UMcpAutomationBridgeSubsystem::HandleGetObjectProperty(
 
 TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
   ResultPayload->SetStringField(TEXT("propertyName"), PropertyName);
+  ResultPayload->SetStringField(TEXT("propertyPath"), PropertyName);
+  ResultPayload->SetStringField(TEXT("resolvedObjectPath"), RootObject->GetPathName());
+  ResultPayload->SetStringField(TEXT("className"), RootObject->GetClass()->GetName());
+  ResultPayload->SetStringField(TEXT("classPath"), RootObject->GetClass()->GetPathName());
+  ResultPayload->SetStringField(TEXT("valueType"), DescribePropertyTypeName(Property));
   ResultPayload->SetField(TEXT("value"), CurrentValue);
+  ResultPayload->SetArrayField(TEXT("warnings"), TArray<TSharedPtr<FJsonValue>>{});
   
   // Add verification based on object type
   if (AActor* AsActor = Cast<AActor>(RootObject)) {

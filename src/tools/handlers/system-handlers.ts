@@ -679,6 +679,42 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
         text: tail.join('\n')
       });
     }
+    case 'tail_render_errors': {
+      const argsRecord = argsTyped as Record<string, unknown>;
+      const requestedPath = typeof argsRecord.logPath === 'string' ? argsRecord.logPath.trim() : '';
+      const contextualFilter = typeof argsRecord.filter === 'string' ? argsRecord.filter.trim().toLowerCase() : '';
+      const maxLines = typeof argsRecord.maxLines === 'number' ? argsRecord.maxLines as number : 200;
+      const candidatePaths = requestedPath ? [requestedPath] : getCandidateLogFiles(process.cwd());
+      const logPath = candidatePaths.find((candidate) => fs.existsSync(candidate));
+
+      if (!logPath) {
+        return cleanObject({
+          success: false,
+          error: 'LOG_NOT_FOUND',
+          message: 'No candidate log file was found',
+          candidates: candidatePaths
+        });
+      }
+
+      const keywords = ['shader', 'material', 'nanite', 'lumen', 'render', 'diffuseindirect'];
+      const content = fs.readFileSync(logPath, 'utf8');
+      let lines = content.split(/\r?\n/).filter((line) => {
+        const lower = line.toLowerCase();
+        const keywordMatch = keywords.some((keyword) => lower.includes(keyword));
+        const contextualMatch = !contextualFilter || lower.includes(contextualFilter);
+        return keywordMatch && contextualMatch;
+      });
+      const tail = lines.slice(Math.max(0, lines.length - maxLines));
+      return cleanObject({
+        success: true,
+        message: `Read ${tail.length} render-focused log line(s) from ${logPath}`,
+        logPath,
+        totalLines: lines.length,
+        lines: tail,
+        text: tail.join('\n'),
+        keywords
+      });
+    }
     case 'export_asset': {
       // Export asset to FBX/OBJ format
       // This requires editor-only functionality
