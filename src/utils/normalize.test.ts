@@ -135,28 +135,134 @@ describe('normalizePartialVector', () => {
 });
 
 describe('normalizeTransformInput', () => {
-    it('normalizes complete transform', () => {
+    it('normalizes complete transform from objects', () => {
         const result = normalizeTransformInput({
-            location: { x: 0, y: 0, z: 100 },
-            rotation: { pitch: 0, yaw: 90, roll: 0 },
+            location: { x: 1, y: 2, z: 3 },
+            rotation: { pitch: 10, yaw: 20, roll: 30 },
             scale: { x: 1, y: 1, z: 1 }
         });
-        expect(result).toBeDefined();
-        expect(result?.location).toBeDefined();
-        expect(result?.rotation).toBeDefined();
-        expect(result?.scale).toBeDefined();
+        expect(result).toEqual({
+            location: { x: 1, y: 2, z: 3 },
+            rotation: { x: 10, y: 20, z: 30 },
+            scale: { x: 1, y: 1, z: 1 }
+        });
     });
 
-    it('handles partial transforms', () => {
+    it('normalizes complete transform from arrays', () => {
+        const result = normalizeTransformInput({
+            location: [1, 2, 3],
+            rotation: [10, 20, 30],
+            scale: [1, 1, 1]
+        });
+        expect(result).toEqual({
+            location: { x: 1, y: 2, z: 3 },
+            rotation: { x: 10, y: 20, z: 30 },
+            scale: { x: 1, y: 1, z: 1 }
+        });
+    });
+
+    it('handles partial transforms with location only', () => {
         const result = normalizeTransformInput({
             location: { x: 100, y: 200, z: 300 }
         });
-        expect(result).toBeDefined();
-        expect(result?.location).toBeDefined();
+        expect(result).toEqual({
+            location: { x: 100, y: 200, z: 300 }
+        });
+    });
+
+    it('handles partial transforms with rotation only', () => {
+        const result = normalizeTransformInput({
+            rotation: { yaw: 90 }
+        });
+        expect(result).toEqual({
+            rotation: { y: 90 }
+        });
+    });
+
+    it('handles partial transforms with scale only', () => {
+        const result = normalizeTransformInput({
+            scale: { z: 5 }
+        });
+        expect(result).toEqual({
+            scale: { z: 5 }
+        });
+    });
+
+    it('handles mixed partial transforms', () => {
+        const result = normalizeTransformInput({
+            location: { x: 1 },
+            scale: { z: 5 }
+        });
+        expect(result).toEqual({
+            location: { x: 1 },
+            scale: { z: 5 }
+        });
+    });
+
+    it('handles mixed formats (array and object)', () => {
+        const result = normalizeTransformInput({
+            location: [1, 2, 3],
+            rotation: { pitch: 10, roll: 30 }
+        });
+        expect(result).toEqual({
+            location: { x: 1, y: 2, z: 3 },
+            rotation: { x: 10, z: 30 }
+        });
+    });
+
+    it('handles partial arrays', () => {
+        const result = normalizeTransformInput({
+            location: [1],
+            rotation: [10, 20],
+            scale: [1, 1, 1, 4]
+        });
+        expect(result).toEqual({
+            location: { x: 1 },
+            rotation: { x: 10, y: 20 },
+            scale: { x: 1, y: 1, z: 1 }
+        });
+    });
+
+    it('handles primitive component input', () => {
+        const result = normalizeTransformInput({
+            location: 100
+        });
+        expect(result).toEqual({
+            location: { x: 100 }
+        });
+    });
+
+    it('normalizes string numbers in components', () => {
+        const result = normalizeTransformInput({
+            location: { x: '100', y: '200.5' }
+        });
+        expect(result).toEqual({
+            location: { x: 100, y: 200.5 }
+        });
+    });
+
+    it('filters out invalid numbers in components', () => {
+        const result = normalizeTransformInput({
+            location: { x: NaN, y: Infinity, z: 'abc' },
+            scale: { x: 1 }
+        });
+        expect(result).toEqual({
+            scale: { x: 1 }
+        });
+    });
+
+    it('returns undefined for empty object', () => {
+        expect(normalizeTransformInput({})).toBeUndefined();
+    });
+
+    it('returns undefined for object with unrelated keys', () => {
+        expect(normalizeTransformInput({ foo: 'bar' })).toBeUndefined();
     });
 
     it('returns undefined for invalid input', () => {
         expect(normalizeTransformInput(null)).toBeUndefined();
+        expect(normalizeTransformInput(undefined)).toBeUndefined();
         expect(normalizeTransformInput('invalid')).toBeUndefined();
+        expect(normalizeTransformInput(123)).toBeUndefined();
     });
 });
