@@ -44,18 +44,16 @@ bool UMcpAutomationBridgeSubsystem::HandleAssetQueryAction(
   if (SubAction == TEXT("get_dependencies")) {
     FString AssetPath;
     Payload->TryGetStringField(TEXT("assetPath"), AssetPath);
-    bool bRecursive = false;
-    Payload->TryGetBoolField(TEXT("recursive"), bRecursive);
+    bool bHardDependencies = false;
+    Payload->TryGetBoolField(TEXT("recursive"), bHardDependencies);
 
     FAssetRegistryModule &AssetRegistryModule =
         FModuleManager::LoadModuleChecked<FAssetRegistryModule>(
             "AssetRegistry");
     TArray<FName> Dependencies;
-    // TODO: bRecursive naming is confusing - true = Hard dependencies (recursive), false = Soft dependencies
-    // Consider renaming to bIncludeSoftDependencies or using an enum for clarity
     UE::AssetRegistry::EDependencyQuery Query =
-        bRecursive ? UE::AssetRegistry::EDependencyQuery::Hard
-                   : UE::AssetRegistry::EDependencyQuery::Soft;
+        bHardDependencies ? UE::AssetRegistry::EDependencyQuery::Hard
+                          : UE::AssetRegistry::EDependencyQuery::Soft;
 
     AssetRegistryModule.Get().GetDependencies(
         FName(*AssetPath), Dependencies,
