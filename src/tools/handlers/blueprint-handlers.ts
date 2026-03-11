@@ -455,7 +455,11 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
     case 'get_graph_details':
     case 'create_node':
     case 'list_node_types':
-    case 'set_pin_default_value': {
+    case 'set_pin_default_value':
+    case 'list_comment_groups':
+    case 'disconnect_subgraph':
+    case 'duplicate_subgraph':
+    case 'create_config_binding_cluster': {
       // Normalize blueprintPath to assetPath for C++ handler compatibility
       const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name;
       

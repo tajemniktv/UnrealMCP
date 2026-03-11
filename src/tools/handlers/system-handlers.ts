@@ -4,6 +4,9 @@ import type { HandlerArgs, SystemArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest } from './common-handlers.js';
 import fs from 'node:fs';
 import { getCandidateLogFiles } from './modding-utils.js';
+import { dynamicToolManager } from '../dynamic-tool-manager.js';
+import { UnrealBridge } from '../../unreal-bridge.js';
+import { getPythonFallbackConfig, isAllowedPythonTemplate } from '../../python-fallback.js';
 
 /** Response from various operations */
 interface OperationResponse {
@@ -24,9 +27,21 @@ interface AssetValidationResult {
   [key: string]: unknown;
 }
 
+function extractPythonParams(argsTyped: SystemArgs, fallback: Record<string, unknown> = {}): Record<string, unknown> {
+  const explicitParams = (argsTyped as Record<string, unknown>).params;
+  if (explicitParams && typeof explicitParams === 'object' && !Array.isArray(explicitParams)) {
+    return {
+      ...fallback,
+      ...(explicitParams as Record<string, unknown>)
+    };
+  }
+  return { ...fallback };
+}
+
 export async function handleSystemTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
   const argsTyped = args as SystemArgs;
   const sysAction = String(action || '').toLowerCase();
+  const bridge = tools.bridge as UnrealBridge | undefined;
   
   switch (sysAction) {
     case 'show_fps':
@@ -323,6 +338,283 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
         });
       }
       return cleanObject(resp);
+    }
+    case 'get_bridge_status': {
+      const automationStatus = tools.automationBridge?.getStatus?.() ?? null;
+      const toolStatus = dynamicToolManager.getStatus();
+      const pythonFallback = getPythonFallbackConfig();
+
+      let engineVersion: Record<string, unknown> | undefined;
+      let featureFlags: Record<string, unknown> | undefined;
+      if (bridge) {
+        try {
+          engineVersion = await bridge.getEngineVersion();
+        } catch {
+          // Ignore bridge-side version failures for status surfaces.
+        }
+        try {
+          featureFlags = await bridge.getFeatureFlags();
+        } catch {
+          // Ignore feature flag failures for status surfaces.
+        }
+      }
+
+      return cleanObject({
+        success: true,
+        bridge: {
+          connected: bridge?.isConnected ?? false,
+          engineVersion,
+          featureFlags
+        },
+        automationBridge: automationStatus,
+        pythonFallback,
+        tools: toolStatus,
+        message: 'Bridge status retrieved'
+      });
+    }
+    case 'transport_self_check': {
+      const automationStatus = tools.automationBridge?.getStatus?.() ?? null;
+      const issues: Array<Record<string, unknown>> = [];
+      const remediation: string[] = [];
+
+      if (!automationStatus) {
+        issues.push({
+          severity: 'error',
+          code: 'AUTOMATION_BRIDGE_MISSING',
+          message: 'Automation bridge is not configured on the MCP server.'
+        });
+        remediation.push('Start the MCP server with automation bridge configuration enabled.');
+      } else {
+        if (!automationStatus.enabled) {
+          issues.push({
+            severity: 'error',
+            code: 'AUTOMATION_BRIDGE_DISABLED',
+            message: 'Automation bridge is disabled.'
+          });
+          remediation.push('Enable the automation bridge in the MCP server configuration.');
+        }
+        if (!automationStatus.connected) {
+          issues.push({
+            severity: 'error',
+            code: 'AUTOMATION_BRIDGE_DISCONNECTED',
+            message: 'Automation bridge is not connected to the Unreal editor.',
+            details: {
+              host: automationStatus.host,
+              port: automationStatus.port,
+              configuredPorts: automationStatus.configuredPorts
+            }
+          });
+          remediation.push('Verify the Unreal editor is running with the MCP Automation Bridge plugin enabled.');
+          remediation.push('Check host/port mismatches and local firewall rules for the configured bridge ports.');
+        }
+        if (automationStatus.capabilityTokenRequired && !automationStatus.lastHandshakeAt) {
+          issues.push({
+            severity: 'warning',
+            code: 'CAPABILITY_TOKEN_REQUIRED',
+            message: 'Capability token is required but no successful handshake has been recorded yet.'
+          });
+          remediation.push('Ensure MCP_AUTOMATION_CAPABILITY_TOKEN matches the token expected by the editor bridge.');
+        }
+        if (automationStatus.lastHandshakeFailure) {
+          issues.push({
+            severity: 'warning',
+            code: 'HANDSHAKE_FAILED',
+            message: automationStatus.lastHandshakeFailure.reason,
+            at: automationStatus.lastHandshakeFailure.at
+          });
+          remediation.push('Review handshake metadata and recent bridge logs for protocol/capability mismatches.');
+        }
+      }
+
+      let engineVersion: Record<string, unknown> | undefined;
+      if (bridge?.isConnected) {
+        try {
+          engineVersion = await bridge.getEngineVersion();
+        } catch {
+          issues.push({
+            severity: 'warning',
+            code: 'ENGINE_VERSION_UNAVAILABLE',
+            message: 'Connected bridge could not report engine version.'
+          });
+        }
+      }
+
+      return cleanObject({
+        success: issues.every((issue) => issue.severity !== 'error'),
+        issues,
+        remediation,
+        bridgeConnected: bridge?.isConnected ?? false,
+        engineVersion,
+        pythonFallback: getPythonFallbackConfig(),
+        automationBridge: automationStatus,
+        message: issues.length > 0 ? 'Transport self-check completed with findings' : 'Transport self-check passed'
+      });
+    }
+    case 'get_python_fallback_status': {
+      const pythonFallback = getPythonFallbackConfig();
+      let nativeStatus: Record<string, unknown> | undefined;
+      if (bridge?.isConnected) {
+        const response = await bridge.executeEditorFunction('GET_PYTHON_FALLBACK_STATUS', {}, { timeoutMs: pythonFallback.timeoutMs });
+        nativeStatus = response as Record<string, unknown>;
+      }
+
+      return cleanObject({
+        success: true,
+        ...pythonFallback,
+        nativeStatus,
+        message: pythonFallback.enabled
+          ? 'Python fallback scaffold is enabled'
+          : 'Python fallback scaffold is disabled by configuration'
+      });
+    }
+    case 'run_python_code': {
+      const pythonFallback = getPythonFallbackConfig();
+      if (!pythonFallback.unsafeEnabled) {
+        return cleanObject({
+          success: false,
+          error: 'PYTHON_FALLBACK_UNSAFE_DISABLED',
+          message: 'Unsafe Python execution is disabled. Set MCP_PYTHON_FALLBACK_UNSAFE_ENABLED=true to allow arbitrary Python code execution.'
+        });
+      }
+
+      const code = typeof argsTyped.code === 'string'
+        ? argsTyped.code
+        : typeof (argsTyped as Record<string, unknown>).script === 'string'
+          ? (argsTyped as Record<string, unknown>).script as string
+          : typeof (argsTyped as Record<string, unknown>).python === 'string'
+            ? (argsTyped as Record<string, unknown>).python as string
+            : typeof (argsTyped as Record<string, unknown>).source === 'string'
+              ? (argsTyped as Record<string, unknown>).source as string
+              : '';
+      if (!code.trim()) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_PYTHON_CODE',
+          message: 'run_python_code requires a non-empty code string.'
+        });
+      }
+
+      if (!bridge) {
+        return cleanObject({
+          success: false,
+          error: 'AUTOMATION_BRIDGE_UNAVAILABLE',
+          message: 'Unreal bridge is not available for Python code execution.'
+        });
+      }
+
+      const response = await bridge.executeEditorFunction('RUN_PYTHON_CODE', {
+        code,
+        resultVariable: argsTyped.resultVariable ?? 'result',
+        scriptParams: extractPythonParams(argsTyped)
+      }, { timeoutMs: typeof argsTyped.timeoutMs === 'number' ? argsTyped.timeoutMs : pythonFallback.timeoutMs });
+
+      return cleanObject({
+        ...response,
+        pythonFallback: {
+          enabled: pythonFallback.enabled,
+          unsafeEnabled: pythonFallback.unsafeEnabled,
+          timeoutMs: pythonFallback.timeoutMs
+        }
+      });
+    }
+    case 'run_python_file': {
+      const pythonFallback = getPythonFallbackConfig();
+      if (!pythonFallback.unsafeEnabled) {
+        return cleanObject({
+          success: false,
+          error: 'PYTHON_FALLBACK_UNSAFE_DISABLED',
+          message: 'Unsafe Python execution is disabled. Set MCP_PYTHON_FALLBACK_UNSAFE_ENABLED=true to allow arbitrary Python file execution.'
+        });
+      }
+
+      const filePath = typeof argsTyped.filePath === 'string'
+        ? argsTyped.filePath
+        : typeof argsTyped.path === 'string'
+          ? argsTyped.path
+          : typeof (argsTyped as Record<string, unknown>).filename === 'string'
+            ? (argsTyped as Record<string, unknown>).filename as string
+            : '';
+      if (!filePath.trim()) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_PYTHON_FILE',
+          message: 'run_python_file requires a non-empty filePath.'
+        });
+      }
+
+      if (!bridge) {
+        return cleanObject({
+          success: false,
+          error: 'AUTOMATION_BRIDGE_UNAVAILABLE',
+          message: 'Unreal bridge is not available for Python file execution.'
+        });
+      }
+
+      const response = await bridge.executeEditorFunction('RUN_PYTHON_FILE', {
+        filePath,
+        resultVariable: argsTyped.resultVariable ?? 'result',
+        scriptParams: extractPythonParams(argsTyped)
+      }, { timeoutMs: typeof argsTyped.timeoutMs === 'number' ? argsTyped.timeoutMs : pythonFallback.timeoutMs });
+
+      return cleanObject({
+        ...response,
+        filePath,
+        pythonFallback: {
+          enabled: pythonFallback.enabled,
+          unsafeEnabled: pythonFallback.unsafeEnabled,
+          timeoutMs: pythonFallback.timeoutMs
+        }
+      });
+    }
+    case 'run_python_template': {
+      const pythonFallback = getPythonFallbackConfig();
+      if (!pythonFallback.enabled) {
+        return cleanObject({
+          success: false,
+          error: 'PYTHON_FALLBACK_DISABLED',
+          message: 'Python fallback scaffold is disabled. Set MCP_PYTHON_FALLBACK_ENABLED=true to allow template execution.',
+          templates: pythonFallback.templates
+        });
+      }
+
+      const templateName = typeof argsTyped.template === 'string'
+        ? argsTyped.template.trim()
+        : '';
+      if (!templateName || !isAllowedPythonTemplate(templateName)) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_PYTHON_TEMPLATE',
+          message: 'run_python_template requires an allowlisted template name.',
+          templates: pythonFallback.templates
+        });
+      }
+
+      if (!bridge) {
+        return cleanObject({
+          success: false,
+          error: 'AUTOMATION_BRIDGE_UNAVAILABLE',
+          message: 'Unreal bridge is not available for Python template execution.'
+        });
+      }
+
+      const response = await bridge.executeEditorFunction('RUN_PYTHON_TEMPLATE', {
+        templateName,
+        templateParams: extractPythonParams(argsTyped, {
+          path: argsTyped.path,
+          recursive: argsTyped.recursive,
+          className: argsTyped.className
+        })
+      }, { timeoutMs: typeof argsTyped.timeoutMs === 'number' ? argsTyped.timeoutMs : pythonFallback.timeoutMs });
+
+      return cleanObject({
+        ...response,
+        template: templateName,
+        pythonFallback: {
+          enabled: pythonFallback.enabled,
+          unsafeEnabled: pythonFallback.unsafeEnabled,
+          timeoutMs: pythonFallback.timeoutMs
+        }
+      });
     }
     case 'validate_assets': {
       const paths: string[] = Array.isArray((argsTyped as Record<string, unknown>).paths) 

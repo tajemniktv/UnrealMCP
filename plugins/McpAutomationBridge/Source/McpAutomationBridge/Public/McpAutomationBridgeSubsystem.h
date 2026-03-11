@@ -236,6 +236,15 @@ private:
   bool HandleRepairModConfigWidgetClasses(const FString &RequestId,
                                           const TSharedPtr<FJsonObject> &Payload,
                                           TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
+  bool HandleRepairModConfigTree(const FString &RequestId,
+                                 const TSharedPtr<FJsonObject> &Payload,
+                                 TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
+  bool HandleDiffModConfigTree(const FString &RequestId,
+                               const TSharedPtr<FJsonObject> &Payload,
+                               TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
+  bool HandleCheckLiveBridgeCapabilities(
+      const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+      TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
   bool HandleSaveModConfig(const FString &RequestId,
                            const TSharedPtr<FJsonObject> &Payload,
                            TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);

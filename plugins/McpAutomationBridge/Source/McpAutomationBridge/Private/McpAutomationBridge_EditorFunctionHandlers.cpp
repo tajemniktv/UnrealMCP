@@ -28,11 +28,15 @@
 #include "FileHelpers.h"
 #endif
 #include "Factories/Factory.h"
+#include "Interfaces/IPluginManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/Base64.h"
+#include "Misc/FileHelper.h"
 #include "Sound/SoundBase.h"
 #include "Sound/SoundCue.h"
 #include "UObject/SoftObjectPath.h"
+#include "Misc/Paths.h"
+#include "Serialization/JsonSerializer.h"
 #if __has_include("Blueprint/UserWidget.h")
 #include "Blueprint/UserWidget.h"
 #endif
@@ -42,6 +46,365 @@
 #include "EngineUtils.h"
 #include "GameFramework/WorldSettings.h"
 #include "Misc/OutputDeviceNull.h"
+#endif
+
+#if WITH_EDITOR
+namespace {
+
+static bool McpIsPythonPluginEnabled() {
+  const TSharedPtr<IPlugin> PythonPlugin =
+      IPluginManager::Get().FindPlugin(TEXT("PythonScriptPlugin"));
+  return PythonPlugin.IsValid() && PythonPlugin->IsEnabled();
+}
+
+static FString McpEscapeForPythonLiteral(const FString& Value) {
+  FString Escaped = Value.Replace(TEXT("\\"), TEXT("\\\\"));
+  Escaped = Escaped.Replace(TEXT("'"), TEXT("\\'"));
+  return Escaped;
+}
+
+static FString McpSerializeJsonObject(const TSharedPtr<FJsonObject>& Object) {
+  if (!Object.IsValid()) {
+    return TEXT("{}");
+  }
+
+  FString Json;
+  TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Json);
+  if (!FJsonSerializer::Serialize(Object.ToSharedRef(), Writer)) {
+    return TEXT("{}");
+  }
+  return Json;
+}
+
+static FString McpBase64EncodeUtf8(const FString& Value) {
+  FTCHARToUTF8 Converter(*Value);
+  return FBase64::Encode(reinterpret_cast<const uint8*>(Converter.Get()),
+                         Converter.Length());
+}
+
+static bool McpExecutePythonScriptText(const FString& Script,
+                                       const FString& FailureMessage,
+                                       TSharedPtr<FJsonObject>& OutResult,
+                                       FString& OutError) {
+  if (!McpIsPythonPluginEnabled()) {
+    OutError = TEXT("PythonScriptPlugin is not enabled.");
+    return false;
+  }
+
+  const FString TempDir =
+      FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("McpAutomationBridge"),
+                      TEXT("PythonFallback"));
+  IFileManager::Get().MakeDirectory(*TempDir, true);
+
+  const FString Token = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+  const FString ScriptPath =
+      FPaths::ConvertRelativePathToFull(FPaths::Combine(TempDir, Token + TEXT(".py")));
+  const FString OutputPath =
+      FPaths::ConvertRelativePathToFull(FPaths::Combine(TempDir, Token + TEXT(".json")));
+
+  const FString FinalScript =
+      Script.Replace(TEXT("__MCP_OUTPUT_PATH__"),
+                     *McpEscapeForPythonLiteral(OutputPath));
+
+  if (!FFileHelper::SaveStringToFile(FinalScript, *ScriptPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)) {
+    OutError = TEXT("Unable to write Python script to disk.");
+    return false;
+  }
+
+  FString PythonCommand = FString::Printf(
+      TEXT("py exec(compile(open(r'%s', encoding='utf-8').read(), r'%s', 'exec'))"),
+      *McpEscapeForPythonLiteral(ScriptPath),
+      *McpEscapeForPythonLiteral(ScriptPath));
+
+  bool bExecuted = false;
+  if (GEditor) {
+    UWorld* TargetWorld = GEditor->GetEditorWorldContext().World();
+    bExecuted = GEditor->Exec(TargetWorld, *PythonCommand);
+  }
+
+  if (!bExecuted) {
+    OutError = FailureMessage;
+    IFileManager::Get().Delete(*ScriptPath);
+    return false;
+  }
+
+  FString JsonText;
+  if (!FFileHelper::LoadFileToString(JsonText, *OutputPath)) {
+    OutError = TEXT("Python template did not produce an output payload.");
+    IFileManager::Get().Delete(*ScriptPath);
+    return false;
+  }
+
+  TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+  if (!FJsonSerializer::Deserialize(Reader, OutResult) || !OutResult.IsValid()) {
+    OutError = TEXT("Python template output could not be parsed as JSON.");
+    IFileManager::Get().Delete(*ScriptPath);
+    IFileManager::Get().Delete(*OutputPath);
+    return false;
+  }
+
+  IFileManager::Get().Delete(*ScriptPath);
+  IFileManager::Get().Delete(*OutputPath);
+  return true;
+}
+
+static bool McpRunPythonArbitraryCode(const FString& Code,
+                                      const FString& ResultVariable,
+                                      const TSharedPtr<FJsonObject>& Params,
+                                      const FString& SourceLabel,
+                                      TSharedPtr<FJsonObject>& OutResult,
+                                      FString& OutError);
+
+static bool McpRunPythonTemplate(const FString& TemplateName,
+                                 const TSharedPtr<FJsonObject>& Params,
+                                 TSharedPtr<FJsonObject>& OutResult,
+                                 FString& OutError) {
+  FString Code;
+  if (TemplateName.Equals(TEXT("list_selected_assets"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("selected = unreal.EditorUtilityLibrary.get_selected_asset_data()\n")
+        TEXT("result = {\n")
+        TEXT("    'success': True,\n")
+        TEXT("    'items': [data.get_asset().get_path_name() for data in selected if data and data.get_asset()],\n")
+        TEXT("}\n")
+        TEXT("result['count'] = len(result['items'])\n");
+  } else if (TemplateName.Equals(TEXT("list_selected_actors"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("selected = unreal.EditorLevelLibrary.get_selected_level_actors()\n")
+        TEXT("result = {\n")
+        TEXT("    'success': True,\n")
+        TEXT("    'items': [actor.get_path_name() for actor in selected if actor],\n")
+        TEXT("}\n")
+        TEXT("result['count'] = len(result['items'])\n");
+  } else if (TemplateName.Equals(TEXT("list_assets_in_path"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("path = str(mcp_params.get('path') or '')\n")
+        TEXT("if not path:\n")
+        TEXT("    raise RuntimeError(\"Template 'list_assets_in_path' requires path.\")\n")
+        TEXT("recursive = bool(mcp_params.get('recursive', False))\n")
+        TEXT("items = unreal.EditorAssetLibrary.list_assets(path, recursive=recursive, include_folder=False)\n")
+        TEXT("result = {'success': True, 'items': items, 'count': len(items), 'path': path, 'recursive': recursive}\n");
+  } else if (TemplateName.Equals(TEXT("find_assets_by_class"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("path = str(mcp_params.get('path') or '/Game')\n")
+        TEXT("class_name = str(mcp_params.get('className') or '').strip()\n")
+        TEXT("if not class_name:\n")
+        TEXT("    raise RuntimeError(\"Template 'find_assets_by_class' requires className.\")\n")
+        TEXT("recursive = bool(mcp_params.get('recursive', True))\n")
+        TEXT("asset_paths = unreal.EditorAssetLibrary.list_assets(path, recursive=recursive, include_folder=False)\n")
+        TEXT("matches = []\n")
+        TEXT("for asset_path in asset_paths:\n")
+        TEXT("    asset = unreal.EditorAssetLibrary.load_asset(asset_path)\n")
+        TEXT("    if asset and asset.get_class().get_name() == class_name:\n")
+        TEXT("        matches.append(asset_path)\n")
+        TEXT("result = {'success': True, 'items': matches, 'count': len(matches), 'path': path, 'className': class_name, 'recursive': recursive}\n");
+  } else if (TemplateName.Equals(TEXT("get_asset_details"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("path = str(mcp_params.get('path') or '')\n")
+        TEXT("if not path:\n")
+        TEXT("    raise RuntimeError(\"Template 'get_asset_details' requires path.\")\n")
+        TEXT("asset = unreal.EditorAssetLibrary.load_asset(path)\n")
+        TEXT("if not asset:\n")
+        TEXT("    raise RuntimeError(f\"Unable to load asset: {path}\")\n")
+        TEXT("asset_class = asset.get_class()\n")
+        TEXT("package_name = asset.get_outermost().get_name() if asset.get_outermost() else ''\n")
+        TEXT("result = {\n")
+        TEXT("    'success': True,\n")
+        TEXT("    'path': asset.get_path_name(),\n")
+        TEXT("    'name': asset.get_name(),\n")
+        TEXT("    'className': asset_class.get_name() if asset_class else '',\n")
+        TEXT("    'packageName': package_name,\n")
+        TEXT("    'exists': unreal.EditorAssetLibrary.does_asset_exist(path),\n")
+        TEXT("}\n");
+  } else if (TemplateName.Equals(TEXT("get_selected_asset_details"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("selected = unreal.EditorUtilityLibrary.get_selected_asset_data()\n")
+        TEXT("items = []\n")
+        TEXT("for data in selected:\n")
+        TEXT("    asset = data.get_asset() if data else None\n")
+        TEXT("    if not asset:\n")
+        TEXT("        continue\n")
+        TEXT("    asset_class = asset.get_class()\n")
+        TEXT("    items.append({\n")
+        TEXT("        'path': asset.get_path_name(),\n")
+        TEXT("        'name': asset.get_name(),\n")
+        TEXT("        'className': asset_class.get_name() if asset_class else '',\n")
+        TEXT("    })\n")
+        TEXT("result = {'success': True, 'items': items, 'count': len(items)}\n");
+  } else if (TemplateName.Equals(TEXT("find_actors_by_class"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("class_name = str(mcp_params.get('className') or '').strip()\n")
+        TEXT("if not class_name:\n")
+        TEXT("    raise RuntimeError(\"Template 'find_actors_by_class' requires className.\")\n")
+        TEXT("actors = unreal.EditorLevelLibrary.get_all_level_actors()\n")
+        TEXT("matches = []\n")
+        TEXT("for actor in actors:\n")
+        TEXT("    actor_class = actor.get_class() if actor else None\n")
+        TEXT("    if actor_class and actor_class.get_name() == class_name:\n")
+        TEXT("        matches.append(actor.get_path_name())\n")
+        TEXT("result = {'success': True, 'items': matches, 'count': len(matches), 'className': class_name}\n");
+  } else if (TemplateName.Equals(TEXT("get_actor_details"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("actor_path = str(mcp_params.get('path') or '')\n")
+        TEXT("if not actor_path:\n")
+        TEXT("    raise RuntimeError(\"Template 'get_actor_details' requires path.\")\n")
+        TEXT("target = None\n")
+        TEXT("for actor in unreal.EditorLevelLibrary.get_all_level_actors():\n")
+        TEXT("    if actor and actor.get_path_name() == actor_path:\n")
+        TEXT("        target = actor\n")
+        TEXT("        break\n")
+        TEXT("if not target:\n")
+        TEXT("    raise RuntimeError(f\"Unable to find actor: {actor_path}\")\n")
+        TEXT("actor_class = target.get_class()\n")
+        TEXT("location = target.get_actor_location()\n")
+        TEXT("rotation = target.get_actor_rotation()\n")
+        TEXT("scale = target.get_actor_scale3d()\n")
+        TEXT("result = {\n")
+        TEXT("    'success': True,\n")
+        TEXT("    'path': target.get_path_name(),\n")
+        TEXT("    'name': target.get_name(),\n")
+        TEXT("    'className': actor_class.get_name() if actor_class else '',\n")
+        TEXT("    'location': {'x': location.x, 'y': location.y, 'z': location.z},\n")
+        TEXT("    'rotation': {'pitch': rotation.pitch, 'yaw': rotation.yaw, 'roll': rotation.roll},\n")
+        TEXT("    'scale': {'x': scale.x, 'y': scale.y, 'z': scale.z},\n")
+        TEXT("}\n");
+  } else if (TemplateName.Equals(TEXT("get_editor_world"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("world = unreal.EditorLevelLibrary.get_editor_world()\n")
+        TEXT("result = {\n")
+        TEXT("    'success': True,\n")
+        TEXT("    'path': world.get_path_name() if world else '',\n")
+        TEXT("    'name': world.get_name() if world else '',\n")
+        TEXT("    'className': world.get_class().get_name() if world and world.get_class() else '',\n")
+        TEXT("}\n");
+  } else {
+    OutError = FString::Printf(TEXT("Unsupported Python template '%s'."), *TemplateName);
+    return false;
+  }
+
+  return McpRunPythonArbitraryCode(
+      Code, TEXT("result"), Params,
+      FString::Printf(TEXT("<python-template:%s>"), *TemplateName), OutResult,
+      OutError);
+}
+
+static bool McpRunPythonArbitraryCode(const FString& Code,
+                                      const FString& ResultVariable,
+                                      const TSharedPtr<FJsonObject>& Params,
+                                      const FString& SourceLabel,
+                                      TSharedPtr<FJsonObject>& OutResult,
+                                      FString& OutError) {
+  if (Code.TrimStartAndEnd().IsEmpty()) {
+    OutError = TEXT("Python code is empty.");
+    return false;
+  }
+
+  const FString ResultName =
+      ResultVariable.TrimStartAndEnd().IsEmpty() ? TEXT("result")
+                                                 : ResultVariable.TrimStartAndEnd();
+  const FString ParamsJson = McpSerializeJsonObject(Params);
+  const FString EncodedParams = McpBase64EncodeUtf8(ParamsJson);
+  const FString EncodedCode = McpBase64EncodeUtf8(Code);
+  const FString EscapedResultName = McpEscapeForPythonLiteral(ResultName);
+  const FString EffectiveSourceLabel = SourceLabel.TrimStartAndEnd().IsEmpty()
+                                           ? TEXT("<mcp-python>")
+                                           : SourceLabel.TrimStartAndEnd();
+  const FString EscapedSourceLabel =
+      McpEscapeForPythonLiteral(EffectiveSourceLabel);
+  const FString Script = FString::Printf(
+      TEXT("import base64\n")
+      TEXT("import contextlib\n")
+      TEXT("import io\n")
+      TEXT("import json\n")
+      TEXT("import traceback\n")
+      TEXT("import unreal\n")
+      TEXT("\n")
+      TEXT("def _mcp_to_jsonable(value, depth=0):\n")
+      TEXT("    if depth > 8:\n")
+      TEXT("        return str(value)\n")
+      TEXT("    if value is None or isinstance(value, (bool, int, float, str)):\n")
+      TEXT("        return value\n")
+      TEXT("    if isinstance(value, (list, tuple, set)):\n")
+      TEXT("        return [_mcp_to_jsonable(v, depth + 1) for v in list(value)]\n")
+      TEXT("    if isinstance(value, dict):\n")
+      TEXT("        return {str(k): _mcp_to_jsonable(v, depth + 1) for k, v in value.items()}\n")
+      TEXT("    try:\n")
+      TEXT("        if hasattr(value, 'get_path_name'):\n")
+      TEXT("            return {\n")
+      TEXT("                'type': type(value).__name__,\n")
+      TEXT("                'name': value.get_name() if hasattr(value, 'get_name') else str(value),\n")
+      TEXT("                'path': value.get_path_name(),\n")
+      TEXT("            }\n")
+      TEXT("    except Exception:\n")
+      TEXT("        pass\n")
+      TEXT("    try:\n")
+      TEXT("        if hasattr(value, 'get_name'):\n")
+      TEXT("            return {'type': type(value).__name__, 'name': value.get_name()}\n")
+      TEXT("    except Exception:\n")
+      TEXT("        pass\n")
+      TEXT("    return str(value)\n")
+      TEXT("\n")
+      TEXT("_mcp_params = json.loads(base64.b64decode('%s').decode('utf-8'))\n")
+      TEXT("_mcp_stdout = io.StringIO()\n")
+      TEXT("_mcp_stderr = io.StringIO()\n")
+      TEXT("_mcp_globals = {\n")
+      TEXT("    '__name__': '__main__',\n")
+      TEXT("    'unreal': unreal,\n")
+      TEXT("    'mcp_params': _mcp_params,\n")
+      TEXT("    '%s': {'success': True},\n")
+      TEXT("}\n")
+      TEXT("with contextlib.redirect_stdout(_mcp_stdout), contextlib.redirect_stderr(_mcp_stderr):\n")
+      TEXT("    try:\n")
+      TEXT("        _mcp_code = base64.b64decode('%s').decode('utf-8')\n")
+      TEXT("        exec(compile(_mcp_code, '%s', 'exec'), _mcp_globals, _mcp_globals)\n")
+      TEXT("        _mcp_result = _mcp_globals.get('%s', {'success': True})\n")
+      TEXT("        if callable(_mcp_globals.get('main')) and _mcp_result == {'success': True}:\n")
+      TEXT("            _mcp_result = _mcp_globals['main'](_mcp_params)\n")
+      TEXT("    except Exception as exc:\n")
+      TEXT("        _mcp_result = {'success': False, 'error': str(exc), 'traceback': traceback.format_exc()}\n")
+      TEXT("_mcp_payload = _mcp_result if isinstance(_mcp_result, dict) else {'success': True, 'result': _mcp_to_jsonable(_mcp_result)}\n")
+      TEXT("_mcp_payload = _mcp_to_jsonable(_mcp_payload)\n")
+      TEXT("if isinstance(_mcp_payload, dict):\n")
+      TEXT("    _mcp_payload.setdefault('success', True)\n")
+      TEXT("    _mcp_payload['stdout'] = _mcp_stdout.getvalue()\n")
+      TEXT("    _mcp_payload['stderr'] = _mcp_stderr.getvalue()\n")
+      TEXT("    _mcp_payload['resultVariable'] = '%s'\n")
+      TEXT("    _mcp_payload['source'] = '%s'\n")
+      TEXT("with open(r'__MCP_OUTPUT_PATH__', 'w', encoding='utf-8') as fp:\n")
+      TEXT("    json.dump(_mcp_payload, fp)\n"),
+      *EncodedParams, *EscapedResultName, *EncodedCode, *EscapedSourceLabel,
+      *EscapedResultName, *EscapedResultName, *EscapedSourceLabel);
+
+  return McpExecutePythonScriptText(
+      Script, TEXT("Failed to execute Python code in editor."), OutResult,
+      OutError);
+}
+
+static bool McpRunPythonFile(const FString& FilePath,
+                             const FString& ResultVariable,
+                             const TSharedPtr<FJsonObject>& Params,
+                             TSharedPtr<FJsonObject>& OutResult,
+                             FString& OutError) {
+  if (FilePath.TrimStartAndEnd().IsEmpty()) {
+    OutError = TEXT("Python file path is empty.");
+    return false;
+  }
+  const FString NormalizedFilePath =
+      FPaths::ConvertRelativePathToFull(FilePath.TrimStartAndEnd());
+  FString Code;
+  if (!FFileHelper::LoadFileToString(Code, *NormalizedFilePath)) {
+    OutError = TEXT("Unable to read Python file.");
+    return false;
+  }
+  const FString WrappedCode = FString::Printf(
+      TEXT("__file__ = r'%s'\n")
+      TEXT("%s"),
+      *McpEscapeForPythonLiteral(NormalizedFilePath), *Code);
+  return McpRunPythonArbitraryCode(WrappedCode, ResultVariable, Params,
+                                   NormalizedFilePath, OutResult, OutError);
+}
+
+} // namespace
 #endif
 
 bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
@@ -169,16 +532,175 @@ bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
   const FString FN = FunctionName.ToUpper();
   // Accept either a top-level 'command' string or nested params.command
   FString Cmd;
+  const TSharedPtr<FJsonObject> *ParamsPtr = nullptr;
+  TSharedPtr<FJsonObject> Params = MakeShared<FJsonObject>();
+  if (Payload->TryGetObjectField(TEXT("params"), ParamsPtr) && ParamsPtr &&
+      (*ParamsPtr).IsValid()) {
+    Params = *ParamsPtr;
+  }
   if (!Payload->TryGetStringField(TEXT("command"), Cmd)) {
-    const TSharedPtr<FJsonObject> *ParamsPtr = nullptr;
-    if (Payload->TryGetObjectField(TEXT("params"), ParamsPtr) && ParamsPtr &&
-        (*ParamsPtr).IsValid()) {
-      (*ParamsPtr)->TryGetStringField(TEXT("command"), Cmd);
-    }
+    Params->TryGetStringField(TEXT("command"), Cmd);
   }
   // (Console handling moved earlier)
 
 #if WITH_EDITOR
+  if (FN == TEXT("GET_PYTHON_FALLBACK_STATUS")) {
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    const bool bPythonPluginEnabled = McpIsPythonPluginEnabled();
+    Result->SetBoolField(TEXT("pythonPluginEnabled"), bPythonPluginEnabled);
+    TArray<TSharedPtr<FJsonValue>> Templates;
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("list_selected_assets")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("list_selected_actors")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("list_assets_in_path")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("find_assets_by_class")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("get_asset_details")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("get_selected_asset_details")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("find_actors_by_class")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("get_actor_details")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("get_editor_world")));
+    Result->SetArrayField(TEXT("templates"), Templates);
+    Result->SetBoolField(TEXT("unsafeExecutionSupported"), bPythonPluginEnabled);
+    Result->SetStringField(
+        TEXT("message"),
+        bPythonPluginEnabled
+            ? TEXT("Python template execution is available in the editor.")
+            : TEXT("PythonScriptPlugin is disabled; Python template execution is unavailable."));
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Python fallback status"), Result,
+                           FString());
+    return true;
+  }
+
+  if (FN == TEXT("RUN_PYTHON_TEMPLATE")) {
+    const TSharedPtr<FJsonObject>* TemplateParamsPtr = nullptr;
+    TSharedPtr<FJsonObject> TemplateParams = Params;
+    if (Params->TryGetObjectField(TEXT("templateParams"), TemplateParamsPtr) &&
+        TemplateParamsPtr && (*TemplateParamsPtr).IsValid()) {
+      TemplateParams = *TemplateParamsPtr;
+    }
+    FString TemplateName;
+    if (!Payload->TryGetStringField(TEXT("templateName"), TemplateName) ||
+        TemplateName.TrimStartAndEnd().IsEmpty()) {
+      if (!Params->TryGetStringField(TEXT("templateName"), TemplateName)) {
+        SendAutomationError(RequestingSocket, RequestId,
+                            TEXT("templateName is required."),
+                            TEXT("INVALID_ARGUMENT"));
+        return true;
+      }
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    FString ErrorMessage;
+    if (!McpRunPythonTemplate(TemplateName, TemplateParams, Result, ErrorMessage)) {
+      SendAutomationResponse(RequestingSocket, RequestId, false,
+                             ErrorMessage, Result,
+                             TEXT("PYTHON_TEMPLATE_FAILED"));
+      return true;
+    }
+
+    SendAutomationResponse(RequestingSocket, RequestId,
+                           !Result->HasField(TEXT("success")) ||
+                               Result->GetBoolField(TEXT("success")),
+                           TEXT("Python template executed"), Result,
+                           FString());
+    return true;
+  }
+
+  if (FN == TEXT("RUN_PYTHON_CODE")) {
+    const TSharedPtr<FJsonObject>* ScriptParamsPtr = nullptr;
+    TSharedPtr<FJsonObject> ScriptParams = MakeShared<FJsonObject>();
+    if (Params->TryGetObjectField(TEXT("scriptParams"), ScriptParamsPtr) &&
+        ScriptParamsPtr && (*ScriptParamsPtr).IsValid()) {
+      ScriptParams = *ScriptParamsPtr;
+    }
+    FString Code;
+    Payload->TryGetStringField(TEXT("code"), Code);
+    FString ResultVariable;
+    Payload->TryGetStringField(TEXT("resultVariable"), ResultVariable);
+    if (Code.TrimStartAndEnd().IsEmpty()) {
+      Params->TryGetStringField(TEXT("code"), Code);
+    }
+    if (Code.TrimStartAndEnd().IsEmpty()) {
+      Params->TryGetStringField(TEXT("script"), Code);
+    }
+    if (Code.TrimStartAndEnd().IsEmpty()) {
+      Params->TryGetStringField(TEXT("python"), Code);
+    }
+    if (Code.TrimStartAndEnd().IsEmpty()) {
+      Params->TryGetStringField(TEXT("source"), Code);
+    }
+    if (ResultVariable.TrimStartAndEnd().IsEmpty()) {
+      Params->TryGetStringField(TEXT("resultVariable"), ResultVariable);
+    }
+    if (Code.TrimStartAndEnd().IsEmpty()) {
+      SendAutomationError(RequestingSocket, RequestId, TEXT("code is required."),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    FString ErrorMessage;
+    if (!McpRunPythonArbitraryCode(Code, ResultVariable, ScriptParams,
+                                   TEXT("<mcp-python>"), Result,
+                                   ErrorMessage)) {
+      SendAutomationResponse(RequestingSocket, RequestId, false, ErrorMessage,
+                             Result, TEXT("PYTHON_CODE_FAILED"));
+      return true;
+    }
+
+    SendAutomationResponse(RequestingSocket, RequestId,
+                           !Result->HasField(TEXT("success")) ||
+                               Result->GetBoolField(TEXT("success")),
+                           TEXT("Python code executed"), Result, FString());
+    return true;
+  }
+
+  if (FN == TEXT("RUN_PYTHON_FILE")) {
+    const TSharedPtr<FJsonObject>* ScriptParamsPtr = nullptr;
+    TSharedPtr<FJsonObject> ScriptParams = MakeShared<FJsonObject>();
+    if (Params->TryGetObjectField(TEXT("scriptParams"), ScriptParamsPtr) &&
+        ScriptParamsPtr && (*ScriptParamsPtr).IsValid()) {
+      ScriptParams = *ScriptParamsPtr;
+    }
+    FString FilePath;
+    Payload->TryGetStringField(TEXT("filePath"), FilePath);
+    FString ResultVariable;
+    Payload->TryGetStringField(TEXT("resultVariable"), ResultVariable);
+    if (FilePath.TrimStartAndEnd().IsEmpty()) {
+      Params->TryGetStringField(TEXT("filePath"), FilePath);
+    }
+    if (FilePath.TrimStartAndEnd().IsEmpty()) {
+      Params->TryGetStringField(TEXT("path"), FilePath);
+    }
+    if (FilePath.TrimStartAndEnd().IsEmpty()) {
+      Params->TryGetStringField(TEXT("filename"), FilePath);
+    }
+    if (ResultVariable.TrimStartAndEnd().IsEmpty()) {
+      Params->TryGetStringField(TEXT("resultVariable"), ResultVariable);
+    }
+    if (FilePath.TrimStartAndEnd().IsEmpty()) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("filePath is required."),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    FString ErrorMessage;
+    if (!McpRunPythonFile(FilePath, ResultVariable, ScriptParams, Result,
+                          ErrorMessage)) {
+      SendAutomationResponse(RequestingSocket, RequestId, false, ErrorMessage,
+                             Result, TEXT("PYTHON_FILE_FAILED"));
+      return true;
+    }
+
+    SendAutomationResponse(RequestingSocket, RequestId,
+                           !Result->HasField(TEXT("success")) ||
+                               Result->GetBoolField(TEXT("success")),
+                           TEXT("Python file executed"), Result, FString());
+    return true;
+  }
+
   // Dispatch a handful of well-known functions to native handlers
   if (FN == TEXT("GET_ALL_ACTORS") || FN == TEXT("GET_ALL_ACTORS_SIMPLE")) {
     if (!GEditor) {

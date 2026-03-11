@@ -579,6 +579,14 @@ export interface InspectArgs extends HandlerArgs {
     sourceMeshPath?: string;
     replacementMeshPath?: string;
     worldType?: 'editor' | 'pie' | 'auto';
+    dryRun?: boolean;
+    plainOnly?: boolean;
+    rewriteSections?: boolean;
+    rewriteProperties?: boolean;
+    sections?: string[];
+    properties?: string[];
+    sectionPrefixes?: string[];
+    propertyPrefixes?: string[];
 }
 
 // ============================================================================
@@ -615,6 +623,18 @@ export interface GraphArgs extends HandlerArgs {
     parentNodeId?: string;
     childNodeId?: string;
     properties?: Record<string, unknown>;
+    commentNodeId?: string;
+    nodeIds?: string[];
+    direction?: 'incoming' | 'outgoing' | 'both';
+    dryRun?: boolean;
+    offsetX?: number;
+    offsetY?: number;
+    reconnectExternalLinks?: boolean;
+    section?: string;
+    propertyName?: string;
+    key?: string;
+    expectedType?: string;
+    applyFunction?: string;
 }
 
 // ============================================================================
@@ -623,8 +643,11 @@ export interface GraphArgs extends HandlerArgs {
 
 export interface SystemArgs extends HandlerArgs {
     command?: string;
+    code?: string;
     category?: string;
     profileType?: string;
+    template?: string;
+    params?: Record<string, unknown>;
     level?: number;
     key?: string;
     value?: string;
@@ -641,6 +664,15 @@ export interface SystemArgs extends HandlerArgs {
     arguments?: string;
     logPath?: string;
     maxLines?: number;
+    host?: string;
+    port?: number;
+    capabilityToken?: string;
+    path?: string;
+    recursive?: boolean;
+    className?: string;
+    filePath?: string;
+    resultVariable?: string;
+    timeoutMs?: number;
 }
 
 // ============================================================================

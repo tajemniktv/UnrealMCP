@@ -1257,6 +1257,15 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
   if (LowerSubAction.Equals(TEXT("repair_mod_config_widget_classes"))) {
     return HandleRepairModConfigWidgetClasses(RequestId, Payload, RequestingSocket);
   }
+  if (LowerSubAction.Equals(TEXT("repair_mod_config_tree"))) {
+    return HandleRepairModConfigTree(RequestId, Payload, RequestingSocket);
+  }
+  if (LowerSubAction.Equals(TEXT("diff_mod_config_tree"))) {
+    return HandleDiffModConfigTree(RequestId, Payload, RequestingSocket);
+  }
+  if (LowerSubAction.Equals(TEXT("check_live_bridge_capabilities"))) {
+    return HandleCheckLiveBridgeCapabilities(RequestId, Payload, RequestingSocket);
+  }
   if (LowerSubAction.Equals(TEXT("save_mod_config"))) {
     return HandleSaveModConfig(RequestId, Payload, RequestingSocket);
   }

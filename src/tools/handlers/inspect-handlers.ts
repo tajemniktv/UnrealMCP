@@ -799,14 +799,20 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         classPath: extractString(params, 'classPath')
       }) as Record<string, unknown>);
     }
-    case 'repair_mod_config_widget_classes': {
+    case 'repair_mod_config_widget_classes':
+    case 'repair_mod_config_tree':
+    case 'diff_mod_config_tree': {
       const objectPath = await resolveObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
 
       const payload: Record<string, unknown> = {
-        action: 'repair_mod_config_widget_classes',
+        action: action === 'repair_mod_config_tree'
+          ? 'repair_mod_config_tree'
+          : action === 'diff_mod_config_tree'
+            ? 'diff_mod_config_tree'
+            : 'repair_mod_config_widget_classes',
         objectPath
       };
 
@@ -832,7 +838,23 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         payload.properties = properties;
       }
 
-      if (typeof argsTyped.dryRun === 'boolean') {
+      const sectionPrefixes = Array.isArray((argsTyped as Record<string, unknown>).sectionPrefixes)
+        ? ((argsTyped as Record<string, unknown>).sectionPrefixes as unknown[]).filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        : [];
+      if (sectionPrefixes.length > 0) {
+        payload.sectionPrefixes = sectionPrefixes;
+      }
+
+      const propertyPrefixes = Array.isArray((argsTyped as Record<string, unknown>).propertyPrefixes)
+        ? ((argsTyped as Record<string, unknown>).propertyPrefixes as unknown[]).filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        : [];
+      if (propertyPrefixes.length > 0) {
+        payload.propertyPrefixes = propertyPrefixes;
+      }
+
+      if (action === 'diff_mod_config_tree') {
+        payload.dryRun = true;
+      } else if (typeof argsTyped.dryRun === 'boolean') {
         payload.dryRun = argsTyped.dryRun;
       }
       if (typeof (argsTyped as Record<string, unknown>).plainOnly === 'boolean') {
@@ -845,6 +867,16 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         payload.rewriteProperties = (argsTyped as Record<string, unknown>).rewriteProperties;
       }
 
+      return cleanObject(await executeAutomationRequest(tools, 'inspect', payload) as Record<string, unknown>);
+    }
+    case 'check_live_bridge_capabilities': {
+      const payload: Record<string, unknown> = {
+        action: 'check_live_bridge_capabilities'
+      };
+      const objectPath = await resolveObjectPath(args, tools);
+      if (objectPath) {
+        payload.objectPath = objectPath;
+      }
       return cleanObject(await executeAutomationRequest(tools, 'inspect', payload) as Record<string, unknown>);
     }
     case 'save_mod_config': {

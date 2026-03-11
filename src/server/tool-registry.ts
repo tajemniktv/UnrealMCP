@@ -113,6 +113,7 @@ export class ToolRegistry {
                 toolCount: status.totalTools,
                 enabledCount: status.enabledTools,
                 disabledCount: status.disabledTools,
+                stabilityCounts: status.stabilityCounts,
                 filteredCount: dynamicToolManager.getEnabledToolDefinitions().length
             };
         }
@@ -145,7 +146,11 @@ export class ToolRegistry {
                     name: state.name,
                     enabled: state.enabled,
                     category: state.category,
-                    description: state.description.substring(0, 100) + (state.description.length > 100 ? '...' : '')
+                    description: state.description.substring(0, 100) + (state.description.length > 100 ? '...' : ''),
+                    stabilityStatus: state.stabilityStatus,
+                    availabilityReason: state.availabilityReason,
+                    requiredPlugins: state.requiredPlugins,
+                    engineVersionRange: state.engineVersionRange
                 }));
                 const status = dynamicToolManager.getStatus();
                 return {
@@ -154,6 +159,7 @@ export class ToolRegistry {
                     totalTools: status.totalTools,
                     enabledCount: status.enabledTools,
                     disabledCount: status.disabledTools,
+                    stabilityCounts: status.stabilityCounts,
                     message: `Listed ${tools.length} tools (${status.enabledTools} enabled, ${status.disabledTools} disabled)`
                 };
             }
@@ -280,6 +286,7 @@ export class ToolRegistry {
                     totalTools: status.totalTools,
                     enabledTools: status.enabledTools,
                     disabledTools: status.disabledTools,
+                    stabilityCounts: status.stabilityCounts,
                     categories: status.categories.map(cat => ({
                         name: cat.name,
                         enabled: cat.enabled,
@@ -459,9 +466,6 @@ export class ToolRegistry {
             // Filter by: 1) tool enabled in DynamicToolManager, 2) category, 3) hide manage_pipeline from non-dynamic clients
             const filtered = allTools
                 .filter((t: ToolDefinition) => {
-                    // Check if tool is enabled
-                    if (!dynamicToolManager.isToolEnabled(t.name)) return false;
-                    
                     // Check category filter
                     const category = t.category;
                     if (category && !effectiveCategories.includes(category) && !effectiveCategories.includes('all')) {
@@ -476,10 +480,23 @@ export class ToolRegistry {
             
             this.logger.debug(`Tool filtering: ${status.enabledTools}/${status.totalTools} enabled, ${filtered.length} visible`);
             
-            const sanitized = filtered.map((t: ToolDefinition) => {
+            const sanitized = filtered
+                .filter((t: ToolDefinition) => supportsListChanged || dynamicToolManager.isToolEnabled(t.name))
+                .map((t: ToolDefinition) => {
                 try {
                     const copy = JSON.parse(JSON.stringify(t)) as Record<string, unknown>;
                     delete copy.outputSchema;
+                    const state = dynamicToolManager.getToolState(t.name);
+                    if (state) {
+                        copy.enabled = state.enabled;
+                        copy.stabilityStatus = state.stabilityStatus;
+                        copy.availabilityReason = state.availabilityReason;
+                        copy.requiredPlugins = state.requiredPlugins;
+                        copy.engineVersionRange = state.engineVersionRange;
+                        if (!state.enabled && supportsListChanged) {
+                            copy.description = `Unavailable: ${state.availabilityReason ?? 'tool disabled by runtime configuration'}`;
+                        }
+                    }
                     return copy;
                 } catch (_e) {
                     return t;
@@ -513,9 +530,29 @@ export class ToolRegistry {
             const startTime = Date.now();
 
             const connected = await this.ensureConnected();
+            const toolState = dynamicToolManager.getToolState(name);
+            if (toolState && !toolState.enabled) {
+                this.healthMonitor.trackPerformance(startTime, false);
+                return {
+                    content: [{
+                        type: 'text',
+                        text: JSON.stringify({
+                            success: false,
+                            error: 'TOOL_UNAVAILABLE',
+                            tool: name,
+                            stabilityStatus: toolState.stabilityStatus,
+                            availabilityReason: toolState.availabilityReason ?? 'Tool disabled by runtime configuration',
+                            requiredPlugins: toolState.requiredPlugins,
+                            engineVersionRange: toolState.engineVersionRange
+                        })
+                    }],
+                    isError: true
+                };
+            }
+
             if (!connected) {
                 // Allow certain tools (pipeline, system checks) to run without connection
-                if (name === 'system_control' && args.action === 'get_project_settings') {
+                if (name === 'system_control' && ['get_project_settings', 'transport_self_check', 'get_bridge_status', 'get_python_fallback_status'].includes(String(args.action ?? ''))) {
                     // Allowed
                 } else {
                     this.healthMonitor.trackPerformance(startTime, false);

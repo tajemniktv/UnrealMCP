@@ -1,343 +1,387 @@
 # Unreal MCP Feature Backlog
 
-## Settings / Mod Config Work First
+This backlog keeps only ideas that still look missing, weak, or worth expanding in the local fork. It is organized by workflow area instead of by where the idea originally came from.
+
+## Recent Progress
+
+Landed recently and no longer the main backlog drivers:
+
+- richer Blueprint graph inspection in `get_graph_details` / `get_node_details` / `get_pin_details`
+- comment-group discovery via `list_comment_groups`
+- first-pass graph rewrite primitives via `disconnect_subgraph` and `duplicate_subgraph`
+- first-pass config-binding scaffold creation via `create_config_binding_cluster`
+- broader mod-config repair entrypoints via `repair_mod_config_tree`, `diff_mod_config_tree`, and `check_live_bridge_capabilities`
+- bridge/tool status enrichment via `transport_self_check`, `get_bridge_status`, tool stability metadata, and resource-side status summaries
+- disabled-by-default Python fallback scaffold with allowlisted template execution, opt-in unsafe full-code/file execution, and status reporting
+- a more reliable Python execution harness with structured params, stdout/stderr/traceback capture, safer result serialization, preserved source labels, and a broader built-in template set for editor/content queries
+
+The backlog below keeps only what still looks incomplete or weak after those passes.
+
+## 1. Blueprint Ownership Migration Work
+
+### TajsGraph Blueprint ownership migration support
+
+Worth adding:
+
+- graph-level tooling specifically suited to staged ownership rewrites in large existing Blueprints such as `BP_RootGameInstance_TajsGraph`
+- support for isolating obsolete legacy binding layers before replacing them
+- workflow support for moving ownership from native/subsystem refresh paths into Blueprint-driven config handling where that is the intended end state
+
+Why it matters:
+
+- the stage notes in [TAJSGRAPH_BP_OWNERSHIP_STAGE_NOTES.md](e:/SatisfactoryModding/SatisfactoryModLoader/Unreal_mcp/TAJSGRAPH_BP_OWNERSHIP_STAGE_NOTES.md) describe a real current migration problem, not a hypothetical future feature
+- the main remaining issue is split ownership between legacy graph bindings, subsystem/native refresh paths, and newer Blueprint-driven config handling
+- this is the first backlog item that is directly tied to an active TajsGraph migration rather than a general MCP capability gap
+
+### Better graph-level introspection for existing Blueprints
+
+Worth adding:
+
+- nested composite graph traversal helpers
+- better summaries for repeated binding clusters in large EventGraphs
+- graph diffs that summarize control/data-flow changes after mutation
+- comment-group or region-scoped graph queries so large EventGraphs do not require full-graph dumps just to recover a few legacy node IDs
+- node queries by title/comment-group instead of GUID-only follow-up work when the graph is already known to contain repeated binding patterns
+- stronger Blueprint graph access from the Python fallback path, or a documented equivalent graph-introspection API when Blueprint editor properties are not exposed to Python the normal way
+
+Why it matters:
+
+- the current tooling is much better than before, but nested composite traversal and mutation-oriented summaries are still too manual for large legacy graphs
+- this is blocking staged cleanup and ownership migration work in TajsGraph
+- in the TajsGraph pass, Python execution worked, but the loaded `Blueprint` object did not expose `ubergraph_pages` / `function_graphs` or matching editor properties, which made Python much less useful for graph discovery than expected
+
+### Safer graph rewrite primitives
+
+Worth adding:
+
+- move or replace a composite binding cluster in one operation
+- duplicate an existing binding composite and retarget only section/property key pins
+- safer isolate/disable flows for legacy subgraphs before deleting them
+- reconnect or retarget external links when duplicating a subgraph
+- comment-group aware “disable without delete” operations
+- reliable cluster stamping for repeated `MC to ConfigProperty -> Cast To ConfigPropertySection -> Binding Composite` flows
+- direct reconnect of an unlinked binding composite by section/key instead of raw pin-level rewiring
+
+Why it matters:
+
+- the TajsGraph root graph contains many near-identical binding composites
+- migration work is still too slow if every cluster must be retargeted and rewired manually after duplication
+
+### Graph templates for repeated config-binding patterns
+
+Worth adding:
+
+- upgrade the current scaffold-style config-binding cluster creation into a fully wired template:
+  - section lookup
+  - property lookup
+  - property cast
+  - `OnPropertyValueChanged` binding
+  - initial conversion/apply call
+- the ability to stamp this pattern repeatedly with different section/key/type values and retarget apply pins automatically
+- reusable macro-style authoring for repeated config binding clusters
+- a template mode that can target an existing composite binding node and inject only the missing config-source and cast path
+- support for legacy binding families where the composite returns `bool`, `int`, or `float` so repeated old settings can be reattached quickly
+
+Why it matters:
+
+- the current graph repeats the same pattern for many settings
+- the current scaffold is useful, but it still stops short of the full repetitive authoring acceleration this workflow needs
+
+### Blueprint graph pin-connection ergonomics
+
+Worth adding:
+
+- make `connect_pins` accept one canonical argument shape and report that shape clearly in docs and errors
+- preserve support for the human-friendly `sourceNode` / `sourcePin` / `targetNode` / `targetPin` form without silently failing
+- better error output when a node exists but the wrong parameter mapping was used
+
+Why it matters:
+
+- in the TajsGraph pass, `connect_pins` using `sourceNode` / `targetNode` failed with `NODE_NOT_FOUND`, while the explicit `fromNodeId` / `fromPinName` / `toNodeId` / `toPinName` form worked
+- this is survivable, but it wastes time on avoidable trial-and-error during graph rewrites
+
+### Blueprint stage cleanup and migration summaries
+
+Worth adding:
+
+- a way to disable or isolate legacy subgraphs without deleting them immediately
+- graph comments/tags that can be queried and mutated through MCP
+- compile-time diff summaries after graph mutation
+- staged migration summaries that make it obvious what was:
+  - isolated
+  - replaced
+  - still unresolved
+
+Why it matters:
+
+- the first safe rewrite step in TajsGraph is cleanup/isolation, not pretending the legacy graph already matches the new ownership model
+- stage-oriented migration support would make MCP much more useful for incremental Blueprint rewrites
+
+## 2. Settings and Mod Config Work
 
 ### Mod-config repair workflows beyond the current batch tool
 
 Worth adding:
 
-- batch rename/move support inside repair flows so a single request can:
-  - recreate selected sections with a target class
-  - move nested children into the repaired destination
-  - delete or detach legacy source sections automatically
-- mixed repair plans that can rewrite both classes and metadata in one workflow
-- direct nested repair targeting by path pattern or predicate instead of explicit path lists only
-- stronger before/after diff output for repaired config trees
-- section/property repair modes that can normalize IDs, display names, and widget classes together
+- migration-style repair flows that can recreate sections, move nested children, and optionally detach or delete legacy sections in one request
+- mixed repair plans that can rewrite classes and metadata together
+- direct nested repair targeting by richer path pattern or predicate, not just explicit and prefix path lists
+- stronger before/after diffs for repaired config trees, especially structural moves and metadata rewrites
+- repair modes that can normalize IDs, display names, and widget classes together
+- a “backfill properties from legacy descriptor list” workflow that can upsert many settings with types/defaults/tooltips in one request
+- an MCP-side way to set per-property `requiresWorldReload` defaults explicitly without relying on tool defaults during every upsert
 
 Why it matters:
 
-- fixing `TajsGraph_ModConfig` through MCP worked, but it was slower than it should have been because the repair had to be done as many small operations:
-  - rename section
-  - create replacement section
-  - move each child property individually
-  - delete old section
-- the new batch class-repair tool removes the worst manual work, but config repair still needs stronger migration-style workflows
-- the next step is turning “repair this config asset” into a richer asset migration tool, not just a class replacement tool
+- config repair is now much closer to a migration workflow, but it still needs better metadata normalization and richer selectors
+- `UModConfiguration` assets should be repairable through MCP without pushing mods toward runtime workaround code
 
-### Runtime bridge reload awareness for editor-side MCP changes
+### Runtime bridge reload awareness for editor-side config work
 
 Worth adding:
 
-- a clear MCP-visible bridge/build version so it is obvious when the running editor is still using old handler code
-- a one-call “self-check” that proves whether newly patched handlers are live
-- better messaging when the source code is patched but the live editor bridge has not been rebuilt/reloaded yet
+- clearer messaging when source patches exist but the running editor bridge has not been rebuilt or reloaded
+- stronger editor/plugin build provenance in status responses so “stale bridge” is obvious without reading logs
 
 Why it matters:
 
-- during this migration, the source fix for section creation was done first, but the live proof only came from creating a probe section
-- the source fix for scalar property creation was also done, but the running bridge still created plain `ConfigPropertyBool`, which means the editor had not picked up the patch yet
-- without explicit versioning or capability probes, MCP users end up discovering stale bridge state indirectly by trial edits
+- stale bridge state is easier to diagnose now, but the editor/plugin provenance still is not explicit enough
 
 ### Data-only mod-config regression coverage
 
-Still worth adding:
+Worth adding:
 
-- add tests for data-only `UModConfiguration` assets so regressions are caught automatically
+- editor-backed tests for data-only `UModConfiguration` assets
+- regression scenarios covering widget-backed section/property creation, clone/move flows, and config repair
 
 Why it matters:
 
-- this was the real root cause of the TajsGraph config UI regression:
-  - MCP created plain `ConfigPropertySection` and plain `ConfigProperty*` objects
-  - SML expected the Blueprint widget-backed classes for editor-facing config UI
-- the handler paths are now aligned around widget-class-first creation and clone flows, but there is still no real editor-backed regression harness proving that against data-only config assets
+- the TajsGraph config UI regression came from MCP creating plain config property classes instead of the expected widget-backed classes
+- the handler logic is now aligned, but there is still no real editor-backed regression harness proving it against data-only assets
 
-### Remaining mod-config asset editing improvements
+### Remaining config asset editing gaps
 
-Still worth adding:
+Worth adding:
 
-- direct nested instanced-object editing for section/property graphs beyond key-level edits
-- better support for mutating section/property object classes and metadata in one workflow
-- safer “repair this config asset” flows for broken data-only `UModConfiguration` assets
+- deeper nested instanced-object editing for section/property graphs
+- workflows that mutate object class and metadata together
+- safer repair flows for broken data-only config assets
 - clearer inspection of section/property class paths and editor-facing widget classes
-- config-tree issue summaries that explicitly flag:
-  - plain SML base classes where widget classes are expected
-  - missing or suspicious section/property metadata
-  - broken class-load paths
-  - likely UI-facing config issues before the mod is run
+- config-tree issue summaries that flag plain base classes, suspicious metadata, broken class-load paths, and likely UI-facing config issues
+- a reliable descriptor/export path for populated mod-config assets
+- better support for legacy Blueprint-backed config assets that resolve through `resolve_mod_config_target` but still fail tree/descriptor inspection unless the exact accepted object path variant is known
 
 Why it matters:
 
-- SML config assets are one of the places where MCP should remove runtime workaround code, not force more of it
-- data-only config assets need asset-level repair tooling, not just runtime normalization
+- during the TajsGraph pass, `get_mod_config_tree` worked on the live `TajsGraph_ModConfig`, but `get_mod_config_descriptor` / `validate_mod_config` still reported `descriptorCount: 0`
+- the retired `BP_TajsGraph_Config` asset could be resolved to variants, but the tree/descriptor actions still failed with `BLUEPRINT_NOT_FOUND`, which prevented straightforward legacy-to-new cloning
 
-### Config-asset workflow helpers
+### Config workflow helpers
 
-Still worth adding:
+Worth adding:
 
-- one-call “repair config section classes” workflows
-- one-call “normalize config IDs and widget section classes” workflows
-- stronger diff-style config tree summaries before/after mutation
-- better issue categorization for config/widget/class loadability reports
-- one-call “self-check the live bridge can create the right widget-backed config classes” workflow
+- one-call “repair config section classes” flows
+- one-call “normalize config IDs and widget section classes” flows
+- stronger diff-style summaries before and after mutation
+- better issue categories for config, widget, and class loadability
+- a one-call “can the live bridge create the right widget-backed config classes?” check
+- a one-call “diff live tree vs expected descriptor list” helper for migrations where the target config already exists but missing legacy keys must be backfilled
 
-Why it matters:
-
-- modders need config repair tools that feel as direct as Blueprint graph tooling
-
-## Stability and Compatibility Work
+## 3. Stability, Compatibility, and Transport
 
 ### UE 5.7.x compatibility and crash hardening
 
 Worth adding:
 
-- harden `inspect` paths that are currently crash-prone on newer engine versions:
+- harden crash-prone inspect paths on newer engine versions, especially:
   - Blueprint inspection
   - mesh actor inspection
   - material function inspection
-  - GAS-related inspection paths
-- add explicit capability/version guards when an asset or action is not safe on the running engine build
-- downgrade known crash paths to structured MCP errors where possible instead of editor crashes
-- improve plugin/build compatibility handling for newer UE versions, especially 5.7.x
-- add better validation around inputs that currently fail late or crash:
+  - GAS-related inspection
+- capability/version guards when an action is not safe on the running engine build
+- downgrade known crash paths to structured MCP errors where possible
+- better plugin/build compatibility handling for newer UE versions
+- stronger validation around inputs that currently fail late or crash, including:
   - `control_editor` level-path handling
-  - console command execution paths
-  - tool calls that depend on missing editor state
-- fix platform/path assumptions that still behave like Unix on Windows when resolving source/code paths
+  - console command execution
+  - requests that depend on missing editor state
+- Windows-safe path handling wherever source/code paths are resolved
 
 Why it matters:
 
-- the public upstream issues currently show a cluster of open 5.7.x failures:
-  - inspect Blueprint crashes
-  - inspect mesh actor crashes
-  - inspect material function crashes
-  - GAS functions breaking on 5.7.3
-  - plugin/module build failures after engine updates
-  - invalid `levelPath` handling in `control_editor`
-  - Windows path resolution bugs during source discovery
-- even in a local fork, stability and engine-version resilience are higher priority than feature breadth when the editor can still be crashed by read-only inspection
+- stability and engine-version resilience are still more important than feature breadth when read-only inspection can crash the editor
 
 ### Tool stability quarantine and degraded-mode behavior
 
 Worth adding:
 
-- a way to mark specific actions as unstable on specific engine versions and automatically:
-  - hide them
-  - stub them
-  - or downgrade them to warning-only mode
-- a structured “tool stability” report that explains which tools are:
-  - safe
-  - degraded
-  - disabled
-  - version-blocked
-- safer failure handling for tools that are known to destabilize the editor
-
-Why it matters:
-
-- upstream also has an open “Unstable Tools” issue, which suggests this is not just a single-action problem
-- MCP should prefer explicit degraded behavior over letting agents discover instability by crashing the editor
+- stronger action-level version gating so unstable paths can be marked per action, not only per tool
+- a richer stability report showing why a tool/action is safe, degraded, disabled, or version-blocked
+- safer failure behavior for tools known to destabilize the editor
 
 ### Connection and transport diagnostics
 
 Worth adding:
 
-- better diagnosis for `socket hang up` / handshake failures, especially in Docker or mixed host/container setups
-- one-call transport self-check that reports:
+- better diagnosis for `socket hang up` and handshake failures, especially in Docker or mixed host/container setups
+- real-time streaming of long-running logs, build output, and test progress through chunked responses or SSE-style updates instead of waiting for a final payload
+- extend the current transport self-check to cover:
   - HTTP reachability
   - WS reachability
   - Remote Control plugin state
   - Python/plugin prerequisites
   - likely port/config mismatches
-- clearer remediation messages for common bridge connection failures
-
-Why it matters:
-
-- connection/handshake issues are one of the most common failure modes exposed in the public issue tracker
-- transport failures currently block all higher-level tooling, so they deserve first-class diagnostics instead of generic connection errors
+- clearer remediation messages for common connection failures
 
 ### Optional pluginless editor transport
 
 Worth adding:
 
-- an optional degraded-mode transport that can talk to the editor through Unreal Python Remote Execution
-- use it for editor-only workflows where the full native bridge is:
-  - unavailable
-  - not installed
-  - failing
-  - behaving incorrectly
-  - or too tedious to extend for a one-off/editor-automation task
-- expose clear capability differences between:
+- an optional degraded transport that talks to the editor through Unreal Python Remote Execution
+- support it only for editor-only workflows when the native bridge is unavailable, failing, incorrect, or too tedious to extend for a one-off task
+- explicit capability differences between:
   - native bridge mode
   - pluginless Python-remote mode
   - disconnected mode
-- keep result shapes as consistent as possible across transports
-- add explicit warnings when a request is being served through the weaker/pluginless path
-- add transport-selection logic that can prefer Python fallback only for supported tool families instead of silently swapping the whole server onto a weaker path
+- consistent result shapes across transports where possible
+- explicit warnings when requests are served through the weaker path
+- transport-selection rules that prefer Python fallback only for approved tool families
 
 Why it matters:
 
-- `runreal/unreal-mcp` demonstrates that built-in Unreal Python Remote Execution can be enough to bootstrap useful editor workflows without shipping a custom UE plugin
-- for this fork, that is not a reason to replace the native bridge, but it is a good reason to add a backup transport for setup, recovery, bridge breakage, and lighter editor-only use cases
-- this would pair naturally with the controlled Python fallback layer already in the backlog
+- a pluginless path would help setup, recovery, and lighter editor-only workflows without replacing the native bridge
 
-## Runtime Inspection Improvements
+## 4. Inspection and Diagnostics
 
-### Better runtime component state
+### Remote profiling and Insights integration
+
+Worth adding:
+
+- remote Unreal Insights capture/start-stop helpers for CPU/GPU/frame investigation
+- MCP-side summaries of trace/session locations and the most useful profiling artifacts to inspect next
+- a thin profiling workflow that can kick off a capture, annotate the target map/session, and return structured follow-up guidance
+
+Why it matters:
+
+- this came from the roadmap’s unfinished infrastructure work and is directly useful for diagnosing rendering/perf regressions in mods without manually driving every profiling step in the editor
+- it is higher value for the current workflow than most of the broader platform/plugin expansion items
+
+### Runtime inspection improvements
 
 Worth adding:
 
 - original mesh versus replacement mesh reporting when remap/replacement data exists
 - actual fallback/default-material detection from render state
 - clearer reporting of overridden material slots on live components
-- stronger editor-versus-PIE differentiation in all runtime inspection responses
+- stronger editor-versus-PIE differentiation in runtime inspection responses
+- richer viewport summaries with active view mode, renderer-relevant toggles, and clearer warnings when the current context prevents authoritative answers
 
-### Richer viewport and renderer-state summaries
-
-Worth adding:
-
-- active view mode when queryable
-- major renderer-relevant toggles or feature-state summaries
-- more explicit warnings when current editor/world context prevents authoritative answers
-
-## Mesh and Material Diagnostics
-
-### Deeper static mesh render summaries
+### Mesh and material diagnostics
 
 Worth adding:
 
-- authoritative section counts per LOD from mesh/render structures
-- stable slot-to-section mapping
-- imported slot names versus effective slot names
-- section-level mismatch warnings, not just slot-count warnings
+- static mesh summaries with authoritative LOD section counts, slot-to-section mapping, imported slot names, and section-level mismatch warnings
+- material summaries with graph-backed WPO/PDO/displacement detection, material-function dependency summaries, clearer shader-permutation risk, and stronger evidence fields
+- material-instance summaries with fuller static switch coverage, fuller component-mask coverage, and clearer inherited-versus-overridden reporting
+- renderer pair analysis with better Nanite compatibility, Lumen-path risk reporting, and stronger causality/evidence output
 
-### Deeper material summaries
-
-Worth adding:
-
-- graph-backed WPO/PDO/displacement detection
-- material-function dependency summaries
-- clearer shader-permutation and sampler-risk reporting
-- stronger “why this material is risky” evidence in the response
-
-### Better material-instance summaries
+### Blueprint/runtime loadability inspection packs
 
 Worth adding:
 
-- fuller static switch coverage
-- fuller component-mask coverage
-- cleaner inherited-versus-overridden parameter reporting
-- better reporting of parent-chain influence on runtime behavior
+- grouped checks for blueprint asset, generated class, CDO, and live object state
+- one-call summaries for common load failures
 
-### Stronger renderer pair analysis
+### AI and NPC debugging helpers
 
 Worth adding:
 
-- better Nanite compatibility reporting
-- better Lumen-path risk reporting
-- more explicit compatibility evidence for mesh/material pairs
-- stronger causality output for “this pair likely changes renderer path”
+- read-only summaries for controller/behavior-tree linkage, blackboard state, perception config, and suspect state-tree or EQS wiring
+- one-call “why is this NPC not behaving?” diagnostics
+- stronger asset/runtime correlation for controllers, trees, blackboards, and spawned pawns
 
-## Modding Workflow Helpers
-
-### Asset diff summaries
+### Physics and destruction diagnostics
 
 Worth adding:
 
-- compare source versus replacement assets across slots, sections, Nanite state, material domains, and major render traits
+- inspection helpers for collision setup, physics asset linkage, constraints, and destructible/fracture-related state
+- runtime summaries for “why is this object not colliding / simulating / breaking?”
+- compatibility checks when replacement assets change collision or physics behavior
 
-### Cooked/package parity checks
+### Environment and PCG inspection helpers
 
 Worth adding:
 
-- detect when assets look fine in editor form but are suspicious for cooking/packaging
-- surface likely mount-root or shader/content packaging mismatches
-- add checks for content-path-sensitive mods
+- read-only inspection for PCG graphs and generated outputs
+- better inspection of landscape/layer/foliage relationships
+- world-partition and data-layer state summaries
+- environment-system dependency summaries that connect assets back to rendering/gameplay effects
+- validation helpers for procedurally generated or placed content
 
-### Better shader/debug artifact correlation
+## 5. Content and Modding Workflows
+
+### Asset diff and compatibility workflows
+
+Worth adding:
+
+- source-versus-replacement asset diff summaries across slots, sections, Nanite state, material domains, and major render traits
+- stronger replacement-compatibility tooling with section-aware warnings, render-path regression warnings, and suggested next inspection steps
+
+### Shader/debug artifact correlation
 
 Worth adding:
 
 - start from shader metadata and find likely owning materials/meshes
 - cross-link shader artifact summaries with dependency slices
-- make shader-related incident reports less inventory-like and more causal
+- make shader-related incident reports more causal and less inventory-like
 
-### Stronger mod runtime validation
+### Mod runtime validation
 
 Worth adding:
 
 - stable issue categories
-- better grouping of class/widget/config loadability
+- better grouping of class, widget, and config loadability
 - better correlation between logs, live objects, runtime component state, and suspect assets
 
-### Better replacement-compatibility tooling
+### Dependency and discovery features
 
 Worth adding:
 
-- section-aware compatibility warnings
-- domain/blend/render-path regression warnings
-- suggested next-inspection steps when incompatibilities are found
-
-## Dependency and Discovery Features
-
-### Richer dependency slices
-
-Worth adding:
-
-- deeper traversal of mesh -> materials -> textures -> functions
+- deeper dependency traversal of mesh -> materials -> textures -> functions
 - better grouping by dependency type
 - optional mount-root filtering
-- outputs shaped for debugging rather than generic dependency dumps
-
-### Better mounted-root discovery
-
-Worth adding:
-
-- quick discovery helpers for mod/plugin content by mount root
-- easier “show me suspicious assets under this mod” workflows
-- MCP-friendly summaries for large plugin content trees
+- outputs shaped for debugging instead of generic dependency dumps
+- faster mod/plugin content discovery by mount root
+- “show me suspicious assets under this mod” workflows
+- better summaries for large plugin content trees
 
 ### Asset and content maintenance workflows
 
 Worth adding:
 
-- bulk asset-validation helpers for selected folders or mount roots
-- redirector discovery and fix-up workflows exposed through MCP
-- one-call summaries for:
-  - missing references
-  - invalid soft paths
-  - suspicious uncooked-only assets
-  - duplicated or orphaned content
-- better content-browser style discovery for:
-  - recently changed assets
-  - assets with dependency fan-out
-  - assets under a mod that are likely to affect runtime rendering
+- bulk asset validation for folders or mount roots
+- redirector discovery and fix-up through MCP
+- one-call summaries for missing references, invalid soft paths, suspicious uncooked-only assets, and orphaned/duplicated content
+- content-browser style discovery for recently changed assets, assets with large dependency fan-out, and assets likely to affect runtime rendering
 
-Why it matters:
+### Packaging-aware workflows
 
-- asset and content hygiene is one of the highest-leverage workflow improvements for modding teams
-- it complements dependency slicing and mount-root discovery instead of duplicating them
+Worth adding:
 
-## Documentation and UX Ideas
+- checks that compare editor-usable assets with likely packaged runtime expectations
+- warnings for common mount-root and cooked-content pitfalls
+- cooked/package parity checks for content-path-sensitive mods
+
+## 6. Extensibility, Python, and UX
 
 ### Tool discovery and context reduction
 
 Worth adding:
 
-- show lightweight stub definitions for disabled tools instead of hiding them completely
-- include activation guidance in those stubs, especially for `enable_tools`, `enable_category`, and category-based filtering
-- preserve `list_changed` behavior when swapping stub definitions to full definitions
-- add clearer MCP-visible explanations for why a tool is unavailable:
-  - disabled by category
-  - protected
-  - engine-version blocked
-  - plugin prerequisite missing
-  - marked unstable
-
-Why it matters:
-
-- the upstream roadmap/issues include a stub-tools/context-reduction idea that still looks valuable for the local fork
-- the local fork already has dynamic tool management, so improving discoverability is a reasonable next layer on top of that
-- hiding disabled tools entirely reduces context size, but it also makes discoverability and self-recovery worse for agents and users
+- lightweight stub definitions for disabled tools instead of hiding them completely
+- activation guidance in those stubs, especially around `enable_tools`, `enable_category`, and category-based filtering
+- preserved `list_changed` behavior when swapping stub definitions to full definitions
+- clearer reasons for unavailability, including disabled category, protected tool, engine-version block, missing plugin prerequisite, or unstable status
 
 ### External extension packs
 
@@ -345,36 +389,27 @@ Worth adding:
 
 - a supported way to add custom MCP tool packs outside the core plugin/server codebase
 - discovery/loading rules for project-local or plugin-local extensions
-- guardrails so extension tools can declare:
-  - required engine version
-  - required plugins/modules
-  - stability level
-  - categories/capabilities
+- manifest-driven registration for custom native C++ handlers so local forks can extend the bridge without editing the central tool registry every time
+- extension metadata for required engine version, required plugins/modules, stability level, and categories/capabilities
 - docs and examples for shipping mod- or studio-specific tool extensions without forking the whole MCP
-
-Why it matters:
-
-- `kvick-games/UnrealMCP` explicitly calls out easier tool extension as a goal, and that is one of the few ideas from that repo that would materially improve this fork
-- this fork is already broad enough that custom extension packs are more scalable than continuing to put every niche workflow into core
 
 ### Controlled Python fallback layer
 
 Worth adding:
 
-- a restricted Python bridge for editor-only workflows that are hard to reach cleanly from the current native bridge
-- use Python explicitly as a backup option when native bridge handlers:
-  - fail unexpectedly
-  - lag behind needed editor APIs
-  - are too tedious/expensive to expose natively for specialized workflows
-- capability-scoped Python entrypoints rather than unrestricted arbitrary Python execution, for example:
-  - asset-audit helpers
+- expand the new restricted Python scaffold beyond its first allowlisted templates
+- use Python explicitly as a backup option when native handlers fail, lag behind needed editor APIs, or are too tedious to expose natively for specialized workflows
+- capability-scoped Python entrypoints for things like:
+  - asset audits
   - editor utility wrappers
   - content-browser queries
-  - specialized reflection/introspection that is easier through the UE Python API
-- optionally expose a “preferPythonFallback” mode for approved tool families where Python is known to be more practical than the current bridge path
-- an allowlisted template/script model where MCP can invoke named Python workflows with validated arguments
-- structured result/error serialization back into normal MCP response shapes
-- explicit safety/stability controls:
+  - reflection-heavy editor introspection
+- optional `preferPythonFallback` behavior for approved tool families where Python is clearly more practical
+- broaden the allowlisted template/script model with validated arguments
+- add stronger structured result/error serialization back into normal MCP response shapes
+- keep the live `system_control` Python entrypoints tolerant of wrapper drift by accepting both direct payload fields and nested `params` fields, plus legacy aliases such as `script` and `path`
+- add thin editor-scripting utility wrappers on top of Python for common workflow tasks such as running editor utilities, selected-asset validation, and small content audit jobs without bespoke native handlers
+- keep explicit safety controls:
   - editor-only
   - disabled by default unless configured
   - clear capability reporting
@@ -383,17 +418,17 @@ Worth adding:
 
 Why it matters:
 
-- `appleweed/UnrealMCPBridge` shows the practical value of Python access to the UE Editor API, especially for workflows that are awkward to expose one-by-one in C++
-- for this fork, Python is most valuable as a backup and escape hatch for targeted gaps, not as the primary server architecture
-- a controlled Python layer could unlock useful editor automation when the bridge is broken, incomplete, or too cumbersome to extend, without abandoning the fork’s current safety/stability posture
+- Python is now available as a constrained scaffold, and the next gains are in template breadth and selective fallback routing rather than reopening arbitrary execution
+- the wrapper compatibility bug that caused `run_python_code` and `run_python_file` to reject valid requests has been fixed in both the TS handler and the native editor bridge
+- the Python path now supports structured params plus stdout/stderr/traceback capture and safer serialization of arbitrary Unreal/Python objects; the remaining work is editor-side compile/runtime verification and broader automatic fallback routing
 
 ### Editor-side MCP control panel
 
 Worth adding:
 
-- a simple editor UI surface for MCP status and health:
+- a small editor UI surface for MCP status and health:
   - bridge connected/disconnected
-  - active transport/port info
+  - active transport and port info
   - version/build info
   - enabled/disabled categories
   - unstable/degraded tools
@@ -403,19 +438,15 @@ Worth adding:
   - list active capabilities
   - open recent MCP logs
 
-Why it matters:
-
-- `kvick-games/UnrealMCP` includes editor UI integration, and this fork would benefit from a small operational UI even if the main control surface remains MCP-first
-- it would help close the gap between source changes and confidence that the running editor actually picked them up
-
 ### Task-oriented inspect cookbook
 
 Worth adding:
 
-- “replacement mesh renders wrong”
-- “material works in editor but not in runtime”
-- “class/widget/config does not load”
-- “I need to inspect a mounted-root asset quickly”
+- short, focused workflow docs for:
+  - replacement mesh renders wrong
+  - material works in editor but not at runtime
+  - class/widget/config does not load
+  - inspect a mounted-root asset quickly
 
 ### Starter project and example workflows
 
@@ -428,29 +459,19 @@ Worth adding:
   - renderer/debug investigation
   - asset validation
 - example client configs and demo scripts for common MCP clients
-- a reproducible smoke-test scenario that can be used to validate the bridge after larger changes
-
-Why it matters:
-
-- compared with `chongdashu/unreal-mcp`, this fork is much stronger on UE feature depth but weaker on “pick it up and prove it works quickly”
-- a starter project would improve onboarding, bug reproduction, and regression verification
+- a reproducible smoke-test scenario for validating the bridge after larger changes
 
 ### Curated high-level workflow macros
 
 Worth adding:
 
 - a small set of opinionated higher-level workflows for common Unreal tasks that currently require many low-level MCP calls
-- examples:
+- candidate macros:
   - investigate render incident
   - repair mod config asset
   - validate replacement mesh/material pairing
   - run content sanity checks for a mount root
-- keep these as thin orchestration layers over existing tools, not separate one-off product surfaces
-
-Why it matters:
-
-- `flopperam/unreal-engine-mcp` is strongest where it packages multi-step workflows into simpler top-level actions
-- this fork should not copy the “build a castle” direction wholesale, but a few high-value workflow macros would improve usability a lot
+- keep these as thin orchestration layers over existing tools instead of turning them into separate product surfaces
 
 ### Structured documentation index
 
@@ -461,11 +482,6 @@ Worth adding:
 - “when to use this tool vs that tool” guidance for overlapping capabilities
 - setup docs for common client configurations and bridge connection modes
 
-Why it matters:
-
-- the comparison repo does a better job packaging docs around setup, sample project, and tool discovery even though the actual tool surface is much smaller
-- this fork now has enough breadth that discoverability is becoming a real usability problem
-
 ### Response-shape improvements
 
 Worth adding:
@@ -475,28 +491,7 @@ Worth adding:
 - more consistent confidence fields
 - more actionable warnings that suggest the next command to run
 
-## Broader UE5 Game Dev Workflow Suggestions
-
-### Blueprint/runtime loadability inspection packs
-
-Worth adding:
-
-- grouped checks for blueprint asset, generated class, CDO, and live object state
-- one-call summaries for common load failures
-
-### Render-incident entrypoint
-
-Worth adding:
-
-- make `get_mod_render_debug_report` the standard “first command” for render incidents
-- structure it so it can fan out into mesh, material, runtime, dependency, and shader investigation
-
-### Packaging-aware workflow helpers
-
-Worth adding:
-
-- checks that compare editor-usable assets with likely packaged runtime expectations
-- warnings for common mount-root and cooked-content pitfalls
+## 7. Broader UE5 Workflow Expansions
 
 ### Testing and quality automation
 
@@ -507,17 +502,8 @@ Worth adding:
   - asset validation
   - mod-config repair verification
   - runtime inspection sanity checks
-- structured parsing of build/test output into:
-  - errors
-  - warnings
-  - likely root causes
-  - suspect files/assets
-- quality gates for local mod/plugin workflows, e.g. “prepackage sanity check”
-
-Why it matters:
-
-- compile/test automation is one of the most practical missing workflow layers for this fork
-- it shortens the loop between asset/tool edits and proving that the editor/project still behaves correctly
+- structured parsing of build/test output into errors, warnings, likely root causes, and suspect files/assets
+- quality gates for local mod/plugin workflows such as a prepackage sanity check
 
 ### Utility and editor workflow helpers
 
@@ -528,62 +514,9 @@ Worth adding:
   - validation runs on selected assets
   - cleanup/fix-up operations
   - simple content audit reports
-- one-call “workspace health” summaries for the current mod/plugin
+- one-call workspace health summaries for the current mod/plugin
+- wrappers for creating or running editor utility widgets/blueprints when that is the most pragmatic way to expose repetitive modding workflows
 - higher-level wrappers around common multi-step editor operations so users do not need to orchestrate many low-level tool calls
-
-Why it matters:
-
-- “utility plugins” is too broad as a roadmap bucket, but the underlying idea is good when translated into concrete editor workflow helpers
-
-### Environment and PCG inspection helpers
-
-Worth adding:
-
-- better read-only inspection for:
-  - PCG graphs and generated outputs
-  - landscape/layer/foliage relationships
-  - world-partition/data-layer state
-  - environment-system dependencies that affect rendering/gameplay
-- validation helpers for generated or procedurally placed content
-- summaries that connect environment/PCG content back to the assets and systems driving it
-
-Why it matters:
-
-- for UE5 projects, environment systems and procedural generation are common sources of hard-to-debug content issues
-- these are more relevant to modding workflows than many of the plugin-specific roadmap buckets
-
-### AI and NPC debugging helpers
-
-Worth adding:
-
-- read-only summaries for AI-related runtime state:
-  - controller/behavior-tree linkage
-  - blackboard state snapshots
-  - perception configuration summaries
-  - suspect state-tree / EQS wiring
-- one-call “why is this NPC not behaving” style diagnostics
-- better asset/runtime correlation for AI controllers, trees, blackboards, and spawned pawns
-
-Why it matters:
-
-- AI/NPC tooling is worth carrying when scoped to debugging and inspection rather than broad gameplay authoring
-- it fits the MCP pattern of helping diagnose complex engine state without forcing manual editor spelunking
-
-### Physics and destruction diagnostics
-
-Worth adding:
-
-- inspection helpers for:
-  - collision setup
-  - physics asset linkage
-  - constraint summaries
-  - destructible/fracture-related asset state
-- runtime summaries for “why is this object not colliding / simulating / breaking”
-- compatibility checks when replacement assets change collision or physics behavior
-
-Why it matters:
-
-- physics-related regressions are common in modded content swaps and are difficult to diagnose from asset properties alone
 
 ### Accessibility and UI verification helpers
 
@@ -594,16 +527,13 @@ Worth adding:
   - contrast/style risks where queryable
   - navigation/focus issues
   - localization-sensitive text risks
-- better summaries for config/menu widgets that are intended to be user-facing
+- better summaries for config/menu widgets intended to be user-facing
 
-Why it matters:
+## 8. Suggested Priority
 
-- accessibility as a full standalone system is too broad, but targeted UI verification helpers are a good fit for MCP
-
-## Suggested Priority
-
-1. Settings / mod-config asset repair workflows.
-2. Bridge-authoritative runtime inspection.
-3. Deeper mesh/material/renderer causality diagnostics.
-4. Asset diff and replacement-compatibility tooling.
-5. Cooked/package parity and shader/debug correlation features.
+0. Blueprint ownership migration tooling for TajsGraph and similar staged rewrites
+1. Extensibility, Python fallback, and UX improvements
+2. Settings and mod-config repair workflows
+3. Stability, transport diagnostics, and compatibility hardening
+4. Bridge-authoritative runtime inspection and renderer diagnostics
+5. Asset diff, replacement compatibility, and packaging-aware workflows

@@ -7,6 +7,8 @@ import { ActorResources } from '../resources/actors.js';
 import { LevelResources } from '../resources/levels.js';
 import { HealthMonitor } from '../services/health-monitor.js';
 import { findPluginDescriptorByRoot, findProjectContext, listPluginDescriptors, summarizeDescriptor } from '../tools/handlers/modding-utils.js';
+import { dynamicToolManager } from '../tools/dynamic-tool-manager.js';
+import { getPythonFallbackConfig } from '../python-fallback.js';
 
 export class ResourceHandler {
   constructor(
@@ -130,6 +132,8 @@ export class ResourceHandler {
       if (uri === 'ue://health') {
         const uptimeMs = Date.now() - this.healthMonitor.metrics.uptime;
         const automationStatus = this.automationBridge.getStatus();
+        const toolStatus = dynamicToolManager.getStatus();
+        const pythonFallback = getPythonFallbackConfig();
 
         let versionInfo: Record<string, unknown> = {};
         let featureFlags: Record<string, unknown> = {};
@@ -167,16 +171,21 @@ export class ResourceHandler {
             transport: 'automation_bridge',
             engineVersion: versionInfo,
             features: {
-              pythonEnabled: false,
+              pythonEnabled: pythonFallback.enabled,
+              pythonUnsafeEnabled: pythonFallback.unsafeEnabled,
+              pythonTemplates: pythonFallback.templates,
               subsystems: featureFlags.subsystems || {},
               automationBridgeConnected: automationStatus.connected
             }
           },
           recentErrors: this.healthMonitor.metrics.recentErrors.slice(-10),
           automationBridge: automationSummary,
+          pythonFallback,
+          toolStatus,
           raw: {
             metrics: this.healthMonitor.metrics,
-            automationStatus
+            automationStatus,
+            toolStatus
           }
         };
 
@@ -191,6 +200,7 @@ export class ResourceHandler {
 
       if (uri === 'ue://automation-bridge') {
         const status = this.automationBridge.getStatus();
+        const toolStatus = dynamicToolManager.getStatus();
         const content = {
           summary: {
             enabled: status.enabled,
@@ -212,7 +222,8 @@ export class ResourceHandler {
           lastError: status.lastError,
           lastHandshakeMetadata: status.lastHandshakeMetadata,
           pendingRequestDetails: status.pendingRequestDetails,
-          listening: status.webSocketListening
+          listening: status.webSocketListening,
+          toolStatus
         };
 
         return {
@@ -230,11 +241,12 @@ export class ResourceHandler {
           return { contents: [{ uri, mimeType: 'text/plain', text: 'Unreal Engine not connected (after 3 attempts).' }] };
         }
         const info = await this.bridge.getEngineVersion();
+        const toolStatus = dynamicToolManager.getStatus();
         return {
           contents: [{
             uri,
             mimeType: 'application/json',
-            text: JSON.stringify(info, null, 2)
+            text: JSON.stringify({ ...info, toolStatus }, null, 2)
           }]
         };
       }

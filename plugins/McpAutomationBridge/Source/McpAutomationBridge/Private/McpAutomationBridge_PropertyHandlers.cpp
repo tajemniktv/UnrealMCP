@@ -853,6 +853,60 @@ static TSharedPtr<FJsonObject> SerializeConfigPropertyTree(
   Node->SetStringField(TEXT("describeValue"), Property->DescribeValue());
   return Node;
 }
+
+static void CollectConfigNodePaths(const UConfigPropertySection* Section,
+                                   const FString& ParentPath,
+                                   TArray<FString>& OutSections,
+                                   TArray<FString>& OutProperties) {
+  if (!Section) {
+    return;
+  }
+
+  TArray<FString> ChildKeys;
+  Section->SectionProperties.GenerateKeyArray(ChildKeys);
+  ChildKeys.Sort();
+
+  for (const FString& ChildKey : ChildKeys) {
+    const UConfigProperty* const* ChildProperty =
+        Section->SectionProperties.Find(ChildKey);
+    if (!ChildProperty || !*ChildProperty) {
+      continue;
+    }
+
+    const UConfigProperty* Property = *ChildProperty;
+    const FString CurrentPath = NormalizeConfigNodePath(
+        ParentPath.IsEmpty() ? ChildKey : FString::Printf(TEXT("%s/%s"), *ParentPath, *ChildKey),
+        Cast<UConfigPropertySection>(Property) != nullptr);
+
+    if (const UConfigPropertySection* ChildSection =
+            Cast<UConfigPropertySection>(Property)) {
+      OutSections.AddUnique(CurrentPath);
+      CollectConfigNodePaths(ChildSection, CurrentPath, OutSections,
+                             OutProperties);
+    } else {
+      OutProperties.AddUnique(CurrentPath);
+    }
+  }
+}
+
+static void ExpandConfigPrefixSelection(
+    const TArray<FString>& Prefixes, const TArray<FString>& Candidates,
+    TArray<FString>& OutSelections) {
+  for (const FString& Prefix : Prefixes) {
+    const FString NormalizedPrefix = NormalizeConfigNodePath(Prefix, true);
+    if (NormalizedPrefix.IsEmpty()) {
+      continue;
+    }
+
+    for (const FString& Candidate : Candidates) {
+      if (Candidate.Equals(NormalizedPrefix, ESearchCase::IgnoreCase) ||
+          Candidate.StartsWith(NormalizedPrefix + TEXT("/"),
+                               ESearchCase::IgnoreCase)) {
+        OutSelections.AddUnique(Candidate);
+      }
+    }
+  }
+}
 #endif
 
 } // namespace
@@ -2210,6 +2264,34 @@ bool UMcpAutomationBridgeSubsystem::HandleRepairModConfigWidgetClasses(
     }
   }
 
+  TArray<FString> RequestedSectionPrefixes;
+  if (const TArray<TSharedPtr<FJsonValue>>* PrefixValues = nullptr;
+      Payload->TryGetArrayField(TEXT("sectionPrefixes"), PrefixValues) && PrefixValues) {
+    for (const TSharedPtr<FJsonValue>& Value : *PrefixValues) {
+      if (!Value.IsValid() || Value->Type != EJson::String) {
+        continue;
+      }
+      const FString Normalized = NormalizeConfigNodePath(Value->AsString(), true);
+      if (!Normalized.IsEmpty()) {
+        RequestedSectionPrefixes.AddUnique(Normalized);
+      }
+    }
+  }
+
+  TArray<FString> RequestedPropertyPrefixes;
+  if (const TArray<TSharedPtr<FJsonValue>>* PrefixValues = nullptr;
+      Payload->TryGetArrayField(TEXT("propertyPrefixes"), PrefixValues) && PrefixValues) {
+    for (const TSharedPtr<FJsonValue>& Value : *PrefixValues) {
+      if (!Value.IsValid() || Value->Type != EJson::String) {
+        continue;
+      }
+      const FString Normalized = NormalizeConfigNodePath(Value->AsString(), true);
+      if (!Normalized.IsEmpty()) {
+        RequestedPropertyPrefixes.AddUnique(Normalized);
+      }
+    }
+  }
+
   FString ClassPath;
   Payload->TryGetStringField(TEXT("classPath"), ClassPath);
   if (ClassPath.TrimStartAndEnd().IsEmpty()) {
@@ -2233,6 +2315,18 @@ bool UMcpAutomationBridgeSubsystem::HandleRepairModConfigWidgetClasses(
   if (!ResolveModConfigurationBlueprint(ObjectPath, Blueprint, ConfigObject, ErrorMessage, ErrorCode)) {
     SendAutomationError(RequestingSocket, RequestId, ErrorMessage, ErrorCode);
     return true;
+  }
+
+  if (ConfigObject->RootSection &&
+      (RequestedSectionPrefixes.Num() > 0 || RequestedPropertyPrefixes.Num() > 0)) {
+    TArray<FString> CandidateSections;
+    TArray<FString> CandidateProperties;
+    CollectConfigNodePaths(ConfigObject->RootSection, FString(), CandidateSections,
+                           CandidateProperties);
+    ExpandConfigPrefixSelection(RequestedSectionPrefixes, CandidateSections,
+                                RequestedSections);
+    ExpandConfigPrefixSelection(RequestedPropertyPrefixes, CandidateProperties,
+                                RequestedProperties);
   }
 
   FConfigWidgetRepairOptions RepairOptions;
@@ -2326,6 +2420,22 @@ bool UMcpAutomationBridgeSubsystem::HandleRepairModConfigWidgetClasses(
     ResultPayload->SetArrayField(TEXT("targetProperties"), PropertyTargets);
   }
 
+  if (RequestedSectionPrefixes.Num() > 0) {
+    TArray<TSharedPtr<FJsonValue>> PrefixTargets;
+    for (const FString& Entry : RequestedSectionPrefixes) {
+      PrefixTargets.Add(MakeShared<FJsonValueString>(Entry));
+    }
+    ResultPayload->SetArrayField(TEXT("targetSectionPrefixes"), PrefixTargets);
+  }
+
+  if (RequestedPropertyPrefixes.Num() > 0) {
+    TArray<TSharedPtr<FJsonValue>> PrefixTargets;
+    for (const FString& Entry : RequestedPropertyPrefixes) {
+      PrefixTargets.Add(MakeShared<FJsonValueString>(Entry));
+    }
+    ResultPayload->SetArrayField(TEXT("targetPropertyPrefixes"), PrefixTargets);
+  }
+
   ResultPayload->SetObjectField(TEXT("tree"),
                                 SerializeConfigPropertyTree(ConfigObject->RootSection, TEXT("RootSection")));
 
@@ -2344,6 +2454,104 @@ bool UMcpAutomationBridgeSubsystem::HandleRepairModConfigWidgetClasses(
                                                    : TEXT("Mod config widget classes already matched the requested targets.")),
       ResultPayload,
       FString());
+  return true;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleRepairModConfigTree(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+  return HandleRepairModConfigWidgetClasses(RequestId, Payload,
+                                            RequestingSocket);
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleDiffModConfigTree(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("diff_mod_config_tree requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#else
+  TSharedPtr<FJsonObject> EffectivePayload =
+      Payload.IsValid() ? MakeShared<FJsonObject>(*Payload)
+                        : MakeShared<FJsonObject>();
+  EffectivePayload->SetBoolField(TEXT("dryRun"), true);
+  return HandleRepairModConfigWidgetClasses(RequestId, EffectivePayload,
+                                            RequestingSocket);
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleCheckLiveBridgeCapabilities(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("check_live_bridge_capabilities requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#else
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetBoolField(TEXT("editorBuild"), true);
+#if MCP_WITH_SML
+  ResultPayload->SetBoolField(TEXT("smlAvailable"), true);
+  const TSubclassOf<UConfigPropertySection> SectionWidgetClass =
+      ResolveSectionWidgetClass();
+  ResultPayload->SetBoolField(TEXT("sectionWidgetClassAvailable"),
+                              SectionWidgetClass != nullptr);
+  if (SectionWidgetClass) {
+    ResultPayload->SetStringField(TEXT("sectionWidgetClassPath"),
+                                  SectionWidgetClass->GetPathName());
+  }
+
+  TSharedPtr<FJsonObject> ScalarClasses = MakeShared<FJsonObject>();
+  const UClass* BoolClass = ResolveScalarWidgetClass(TEXT("bool"));
+  const UClass* FloatClass = ResolveScalarWidgetClass(TEXT("float"));
+  const UClass* IntClass = ResolveScalarWidgetClass(TEXT("int"));
+  const UClass* StringClass = ResolveScalarWidgetClass(TEXT("string"));
+  ScalarClasses->SetStringField(TEXT("bool"),
+                                BoolClass ? BoolClass->GetPathName() : FString());
+  ScalarClasses->SetStringField(TEXT("float"),
+                                FloatClass ? FloatClass->GetPathName() : FString());
+  ScalarClasses->SetStringField(TEXT("int"),
+                                IntClass ? IntClass->GetPathName() : FString());
+  ScalarClasses->SetStringField(TEXT("string"),
+                                StringClass ? StringClass->GetPathName() : FString());
+  ResultPayload->SetObjectField(TEXT("scalarWidgetClasses"), ScalarClasses);
+
+  FString ObjectPath;
+  if (Payload.IsValid() && Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) &&
+      !ObjectPath.TrimStartAndEnd().IsEmpty()) {
+    UBlueprint* Blueprint = nullptr;
+    UModConfiguration* ConfigObject = nullptr;
+    FString ErrorMessage;
+    FString ErrorCode;
+    const bool bResolved = ResolveModConfigurationBlueprint(
+        ObjectPath, Blueprint, ConfigObject, ErrorMessage, ErrorCode);
+    ResultPayload->SetBoolField(TEXT("configTargetResolved"), bResolved);
+    if (bResolved && Blueprint) {
+      ResultPayload->SetStringField(TEXT("resolvedBlueprintPath"),
+                                    Blueprint->GetPathName());
+      ResultPayload->SetStringField(
+          TEXT("resolvedConfigClassPath"),
+          Blueprint->GeneratedClass ? Blueprint->GeneratedClass->GetPathName()
+                                    : FString());
+    } else {
+      ResultPayload->SetStringField(TEXT("resolutionError"), ErrorMessage);
+      ResultPayload->SetStringField(TEXT("resolutionErrorCode"), ErrorCode);
+    }
+  }
+#else
+  ResultPayload->SetBoolField(TEXT("smlAvailable"), false);
+  ResultPayload->SetBoolField(TEXT("sectionWidgetClassAvailable"), false);
+  ResultPayload->SetStringField(TEXT("availabilityReason"),
+                                TEXT("SML module is not available in this project."));
+#endif
+
+  SendAutomationResponse(RequestingSocket, RequestId, true,
+                         TEXT("Live bridge capability check completed."),
+                         ResultPayload, FString());
   return true;
 #endif
 }

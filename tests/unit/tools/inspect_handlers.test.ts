@@ -116,4 +116,41 @@ describe('Inspect Handlers', () => {
         expect(inspectCall[1]?.sections).toEqual(['Graphics', 'Graphics/Advanced']);
         expect(inspectCall[1]?.properties).toEqual(['Graphics/EnableFancyThing', 'Graphics/Advanced/ShadowSteps']);
     });
+
+    it('forwards repair_mod_config_tree selectors to the inspect bridge', async () => {
+        await handleInspectTools('repair_mod_config_tree', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            dryRun: false,
+            sectionPrefixes: ['Graphics'],
+            propertyPrefixes: ['Graphics/Advanced']
+        }, mockTools);
+
+        const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        const inspectCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'repair_mod_config_tree');
+        expect(inspectCall).toBeTruthy();
+        expect(inspectCall[1]?.sectionPrefixes).toEqual(['Graphics']);
+        expect(inspectCall[1]?.propertyPrefixes).toEqual(['Graphics/Advanced']);
+    });
+
+    it('forces dryRun when diff_mod_config_tree is requested', async () => {
+        await handleInspectTools('diff_mod_config_tree', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            dryRun: false
+        }, mockTools);
+
+        const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        const inspectCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'diff_mod_config_tree');
+        expect(inspectCall).toBeTruthy();
+        expect(inspectCall[1]?.dryRun).toBe(true);
+    });
+
+    it('forwards live bridge capability checks to the inspect bridge', async () => {
+        await handleInspectTools('check_live_bridge_capabilities', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig'
+        }, mockTools);
+
+        const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        const inspectCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'check_live_bridge_capabilities');
+        expect(inspectCall).toBeTruthy();
+    });
 });

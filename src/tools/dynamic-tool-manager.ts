@@ -17,6 +17,10 @@ interface ToolState {
   category: ToolCategory;
   enabled: boolean;
   description: string;
+  stabilityStatus: 'safe' | 'degraded' | 'disabled' | 'version_blocked';
+  availabilityReason?: string;
+  requiredPlugins?: string[];
+  engineVersionRange?: { min?: string; max?: string };
 }
 
 interface CategoryState {
@@ -47,7 +51,11 @@ class DynamicToolManager {
         name: def.name,
         category,
         enabled: true,
-        description: def.description
+        description: def.description,
+        stabilityStatus: def.stabilityStatus ?? 'safe',
+        availabilityReason: def.availabilityReason,
+        requiredPlugins: def.requiredPlugins,
+        engineVersionRange: def.engineVersionRange
       });
 
       // Track category stats
@@ -267,19 +275,28 @@ class DynamicToolManager {
     totalTools: number;
     enabledTools: number;
     disabledTools: number;
+    stabilityCounts: Record<'safe' | 'degraded' | 'disabled' | 'version_blocked', number>;
     categories: CategoryState[];
   } {
     this.ensureInitialized();
     
     let enabledCount = 0;
+    const stabilityCounts = {
+      safe: 0,
+      degraded: 0,
+      disabled: 0,
+      version_blocked: 0
+    } as Record<'safe' | 'degraded' | 'disabled' | 'version_blocked', number>;
     for (const state of this.toolStates.values()) {
       if (state.enabled) enabledCount++;
+      stabilityCounts[state.stabilityStatus] = (stabilityCounts[state.stabilityStatus] ?? 0) + 1;
     }
 
     return {
       totalTools: this.toolStates.size,
       enabledTools: enabledCount,
       disabledTools: this.toolStates.size - enabledCount,
+      stabilityCounts,
       categories: Array.from(this.categoryStates.values())
     };
   }

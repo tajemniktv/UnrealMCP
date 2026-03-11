@@ -47,6 +47,9 @@ export const EnvSchema = z.object({
   MCP_AUTOMATION_PORT: z.preprocess((v) => stringToNumber(v, 8091), z.number().default(8091)),
   MCP_AUTOMATION_HOST: z.string().default('127.0.0.1'),
   MCP_AUTOMATION_CLIENT_MODE: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  MCP_PYTHON_FALLBACK_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  MCP_PYTHON_FALLBACK_UNSAFE_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  MCP_PYTHON_TEMPLATE_TIMEOUT_MS: z.preprocess((v) => stringToNumber(v, 10000), z.number().default(10000)),
 
   // Timeouts
   MCP_CONNECTION_TIMEOUT_MS: z.preprocess((v) => stringToNumber(v, 5000), z.number().default(5000)),
