@@ -6,6 +6,7 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Policies/CondensedJsonPrintPolicy.h"
 #include "Serialization/JsonSerializer.h"
+#include "UObject/SoftObjectPtr.h"
 
 #if MCP_WITH_SML
 #include "Configuration/ModConfiguration.h"
@@ -15,9 +16,22 @@
 #include "Configuration/Properties/ConfigPropertyInteger.h"
 #include "Configuration/Properties/ConfigPropertySection.h"
 #include "Configuration/Properties/ConfigPropertyString.h"
+#include "Configuration/Properties/WidgetExtension/CP_Section.h"
 #endif
 
 namespace {
+
+#if MCP_WITH_SML
+static TSubclassOf<UConfigPropertySection> ResolveSectionWidgetClass() {
+  static TSoftClassPtr<UConfigPropertySection> SoftClass{
+      FSoftObjectPath(TEXT("/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertySection.BP_ConfigPropertySection_C"))};
+  if (TSubclassOf<UConfigPropertySection> LoadedClass = SoftClass.LoadSynchronous()) {
+    return LoadedClass;
+  }
+
+  return UCP_Section::StaticClass();
+}
+#endif
 
 static bool IsValidConfigIdentifier(const FString& Identifier) {
   if (Identifier.TrimStartAndEnd().IsEmpty()) {
@@ -224,9 +238,10 @@ static UConfigPropertySection* FindOrCreateSection(
     }
 
     CurrentSection->Modify();
+    TSubclassOf<UConfigPropertySection> SectionClass = ResolveSectionWidgetClass();
     UConfigPropertySection* NewSection =
-        NewObject<UConfigPropertySection>(CurrentSection, UConfigPropertySection::StaticClass(),
-                                          MakeUniqueObjectName(CurrentSection, UConfigPropertySection::StaticClass(),
+        NewObject<UConfigPropertySection>(CurrentSection, SectionClass,
+                                          MakeUniqueObjectName(CurrentSection, SectionClass,
                                                                *FString::Printf(TEXT("%s_Section"), *Segment)),
                                           RF_Public | RF_Transactional);
     NewSection->DisplayName = FText::FromString(Segment);
@@ -792,7 +807,7 @@ bool UMcpAutomationBridgeSubsystem::HandleUpsertModConfigProperty(
 
   if (!ConfigObject->RootSection) {
     ConfigObject->RootSection =
-        NewObject<UConfigPropertySection>(ConfigObject, UConfigPropertySection::StaticClass(),
+        NewObject<UConfigPropertySection>(ConfigObject, ResolveSectionWidgetClass(),
                                           TEXT("RootSection"), RF_Public | RF_Transactional);
     ConfigObject->RootSection->DisplayName = FText::FromString(TEXT("Root"));
     bStructuralChange = true;
@@ -1058,7 +1073,7 @@ bool UMcpAutomationBridgeSubsystem::HandleEnsureModConfigSection(
   Blueprint->Modify();
   ConfigObject->Modify();
   if (!ConfigObject->RootSection) {
-    ConfigObject->RootSection = NewObject<UConfigPropertySection>(ConfigObject, UConfigPropertySection::StaticClass(),
+    ConfigObject->RootSection = NewObject<UConfigPropertySection>(ConfigObject, ResolveSectionWidgetClass(),
                                                                  TEXT("RootSection"), RF_Public | RF_Transactional);
     ConfigObject->RootSection->DisplayName = FText::FromString(TEXT("Root"));
     bStructuralChange = true;
