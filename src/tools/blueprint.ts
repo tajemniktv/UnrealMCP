@@ -64,8 +64,8 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
 
   private isUnknownActionResponse(res: ActionResponse | StandardActionResponse | null | undefined): boolean {
     if (!res) return false;
-    const errStr = typeof res.error === 'string' ? res.error : '';
-    const msgStr = typeof res.message === 'string' ? res.message : '';
+    const errStr = typeof res.error === 'string' ? res.error : String(res.error || '');
+    const msgStr = typeof res.message === 'string' ? res.message : String(res.message || '');
     const txt = (errStr || msgStr).toLowerCase();
     // Only treat specific error codes as "not implemented"
     return txt.includes('unknown_action') || txt.includes('unknown automation action') || txt.includes('not_implemented') || txt === 'unknown_plugin_action';
