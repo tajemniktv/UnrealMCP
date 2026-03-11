@@ -3,9 +3,7 @@
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeSubsystem.h"
 #include "Misc/ConfigCacheIni.h"
-#include "Misc/App.h"
 #include "Misc/PackageName.h"
-#include "HAL/PlatformMemory.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
@@ -1027,9 +1025,7 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     LowerSubAction.Equals(TEXT("list_objects")) ||
     LowerSubAction.Equals(TEXT("find_by_class")) ||
     LowerSubAction.Equals(TEXT("find_by_tag")) ||
-    LowerSubAction.Equals(TEXT("inspect_class")) ||
-    LowerSubAction.Equals(TEXT("describe_class")) ||
-    LowerSubAction.Equals(TEXT("list_properties"));
+    LowerSubAction.Equals(TEXT("inspect_class"));
 
   // Actions that require actorName instead of objectPath
   const bool bIsActorAction = 
@@ -1128,21 +1124,10 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("get_world_settings"))) {
-      FString ActualWorldType;
-      UWorld* World = ResolveInspectionWorld(Payload, &ActualWorldType);
-      if (World) {
+      if (GEditor && GEditor->GetEditorWorldContext().World()) {
+        UWorld* World = GEditor->GetEditorWorldContext().World();
         Resp->SetStringField(TEXT("worldName"), World->GetName());
-        Resp->SetStringField(TEXT("worldPath"), World->GetPathName());
-        Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
-        Resp->SetStringField(TEXT("requestedWorldType"), Payload->HasField(TEXT("worldType")) ? Payload->GetStringField(TEXT("worldType")) : TEXT("auto"));
-        Resp->SetBoolField(TEXT("isGameWorld"), World->IsGameWorld());
-        Resp->SetBoolField(TEXT("hasBegunPlay"), World->HasBegunPlay());
-        if (World->GetCurrentLevel()) {
-          Resp->SetStringField(TEXT("levelName"), World->GetCurrentLevel()->GetName());
-          Resp->SetStringField(TEXT("levelPath"), World->GetCurrentLevel()->GetPathName());
-        }
-        Resp->SetStringField(TEXT("mapName"), World->GetMapName());
-        Resp->SetNumberField(TEXT("streamingLevelCount"), World->GetStreamingLevels().Num());
+        Resp->SetStringField(TEXT("levelName"), World->GetCurrentLevel()->GetName());
         Resp->SetBoolField(TEXT("success"), true);
         SendAutomationResponse(RequestingSocket, RequestId, true,
                                TEXT("World settings retrieved"), Resp, FString());
@@ -1154,25 +1139,15 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("get_viewport_info"))) {
-      FString ActualWorldType;
-      ResolveInspectionWorld(Payload, &ActualWorldType);
       if (GEditor && GEditor->GetActiveViewport()) {
         FViewport* Viewport = GEditor->GetActiveViewport();
         Resp->SetNumberField(TEXT("width"), Viewport->GetSizeXY().X);
         Resp->SetNumberField(TEXT("height"), Viewport->GetSizeXY().Y);
-        Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
-        Resp->SetStringField(TEXT("requestedWorldType"), Payload->HasField(TEXT("worldType")) ? Payload->GetStringField(TEXT("worldType")) : TEXT("auto"));
-        Resp->SetBoolField(TEXT("hasActiveViewport"), true);
-        Resp->SetBoolField(TEXT("pieActive"), GEditor->PlayWorld != nullptr);
         Resp->SetBoolField(TEXT("success"), true);
         SendAutomationResponse(RequestingSocket, RequestId, true,
                                TEXT("Viewport info retrieved"), Resp, FString());
       } else {
         Resp->SetBoolField(TEXT("success"), true);
-        Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
-        Resp->SetStringField(TEXT("requestedWorldType"), Payload->HasField(TEXT("worldType")) ? Payload->GetStringField(TEXT("worldType")) : TEXT("auto"));
-        Resp->SetBoolField(TEXT("hasActiveViewport"), false);
-        Resp->SetBoolField(TEXT("pieActive"), GEditor && GEditor->PlayWorld != nullptr);
         Resp->SetStringField(TEXT("message"), TEXT("Viewport info not available in this context"));
         SendAutomationResponse(RequestingSocket, RequestId, true,
                                TEXT("Viewport info retrieved"), Resp, FString());
@@ -1203,48 +1178,28 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     }
     else if (LowerSubAction.Equals(TEXT("get_scene_stats"))) {
       int32 ActorCount = 0;
-      int32 PrimitiveComponentCount = 0;
-      FString ActualWorldType;
-      UWorld* World = ResolveInspectionWorld(Payload, &ActualWorldType);
-      if (World) {
+      if (GEditor && GEditor->GetEditorWorldContext().World()) {
+        UWorld* World = GEditor->GetEditorWorldContext().World();
         for (TActorIterator<AActor> It(World); It; ++It) {
           ActorCount++;
-          if (AActor* Actor = *It) {
-            PrimitiveComponentCount += Actor->GetComponents().Num();
-          }
         }
       }
       Resp->SetNumberField(TEXT("actorCount"), ActorCount);
-      Resp->SetNumberField(TEXT("componentCount"), PrimitiveComponentCount);
-      Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
       Resp->SetBoolField(TEXT("success"), true);
       SendAutomationResponse(RequestingSocket, RequestId, true,
                              TEXT("Scene stats retrieved"), Resp, FString());
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("get_performance_stats"))) {
-      FString ActualWorldType;
-      UWorld* World = ResolveInspectionWorld(Payload, &ActualWorldType);
-      const float DeltaSeconds = FApp::GetDeltaTime();
-      const double ApproximateFps = DeltaSeconds > KINDA_SMALL_NUMBER ? (1.0 / static_cast<double>(DeltaSeconds)) : 0.0;
-      Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
-      Resp->SetBoolField(TEXT("pieActive"), GEditor && GEditor->PlayWorld != nullptr);
-      Resp->SetNumberField(TEXT("deltaSeconds"), DeltaSeconds);
-      Resp->SetNumberField(TEXT("approximateFps"), ApproximateFps);
-      Resp->SetStringField(TEXT("worldName"), World ? World->GetName() : TEXT(""));
       Resp->SetBoolField(TEXT("success"), true);
+      Resp->SetStringField(TEXT("message"), TEXT("Performance stats placeholder - implement with actual metrics"));
       SendAutomationResponse(RequestingSocket, RequestId, true,
                              TEXT("Performance stats retrieved"), Resp, FString());
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("get_memory_stats"))) {
-      const FPlatformMemoryStats MemoryStats = FPlatformMemory::GetStats();
       Resp->SetBoolField(TEXT("success"), true);
-      Resp->SetNumberField(TEXT("availablePhysicalMB"), static_cast<double>(MemoryStats.AvailablePhysical) / (1024.0 * 1024.0));
-      Resp->SetNumberField(TEXT("usedPhysicalMB"), static_cast<double>(MemoryStats.UsedPhysical) / (1024.0 * 1024.0));
-      Resp->SetNumberField(TEXT("peakUsedPhysicalMB"), static_cast<double>(MemoryStats.PeakUsedPhysical) / (1024.0 * 1024.0));
-      Resp->SetNumberField(TEXT("availableVirtualMB"), static_cast<double>(MemoryStats.AvailableVirtual) / (1024.0 * 1024.0));
-      Resp->SetNumberField(TEXT("usedVirtualMB"), static_cast<double>(MemoryStats.UsedVirtual) / (1024.0 * 1024.0));
+      Resp->SetStringField(TEXT("message"), TEXT("Memory stats placeholder - implement with actual metrics"));
       SendAutomationResponse(RequestingSocket, RequestId, true,
                              TEXT("Memory stats retrieved"), Resp, FString());
       return true;
@@ -1318,25 +1273,23 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
                              TEXT("Objects found by tag"), Resp, FString());
       return true;
     }
-    else if (LowerSubAction.Equals(TEXT("inspect_class")) ||
-             LowerSubAction.Equals(TEXT("describe_class")) ||
-             LowerSubAction.Equals(TEXT("list_properties"))) {
+    else if (LowerSubAction.Equals(TEXT("inspect_class"))) {
       FString ClassName;
       Payload->TryGetStringField(TEXT("className"), ClassName);
       if (!ClassName.IsEmpty()) {
-        UClass* TargetClass = ResolveClassByName(ClassName);
+        // Try to find the class
+        UClass* TargetClass = FindObject<UClass>(nullptr, *ClassName);
+        if (!TargetClass && !ClassName.Contains(TEXT("."))) {
+          // Try with /Script/Engine prefix for common classes
+          TargetClass = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/Engine.%s"), *ClassName));
+        }
         if (TargetClass) {
-          TArray<TSharedPtr<FJsonValue>> PropertiesArray;
-          AppendPropertyDescriptions(TargetClass, PropertiesArray);
           Resp->SetStringField(TEXT("className"), TargetClass->GetName());
           Resp->SetStringField(TEXT("classPath"), TargetClass->GetPathName());
           Resp->SetStringField(TEXT("parentClass"), TargetClass->GetSuperClass() ? TargetClass->GetSuperClass()->GetName() : TEXT("None"));
-          Resp->SetNumberField(TEXT("propertyCount"), PropertiesArray.Num());
-          Resp->SetArrayField(TEXT("properties"), PropertiesArray);
-          Resp->SetStringField(TEXT("resolvedClassName"), TargetClass->GetName());
           Resp->SetBoolField(TEXT("success"), true);
           SendAutomationResponse(RequestingSocket, RequestId, true,
-                                 LowerSubAction.Equals(TEXT("list_properties")) ? TEXT("Class properties listed") : TEXT("Class described"), Resp, FString());
+                                 TEXT("Class inspected"), Resp, FString());
         } else {
           SendAutomationError(RequestingSocket, RequestId,
                               FString::Printf(TEXT("Class not found: %s"), *ClassName),
@@ -1344,7 +1297,7 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
         }
       } else {
         SendAutomationError(RequestingSocket, RequestId,
-                            TEXT("className is required for describe_class"),
+                            TEXT("className is required for inspect_class"),
                             TEXT("INVALID_ARGUMENT"));
       }
       return true;

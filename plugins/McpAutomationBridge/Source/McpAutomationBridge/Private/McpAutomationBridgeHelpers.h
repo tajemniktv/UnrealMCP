@@ -344,39 +344,6 @@ static inline UObject* ResolveObjectFromPath(const FString& InObjectPath, bool b
   return nullptr;
 }
 
-#if WITH_EDITOR
-static inline UWorld* ResolveInspectionWorld(const TSharedPtr<FJsonObject>& Payload, FString* OutResolvedWorldType = nullptr) {
-  FString RequestedWorldType = TEXT("auto");
-  if (Payload.IsValid()) {
-    Payload->TryGetStringField(TEXT("worldType"), RequestedWorldType);
-  }
-
-  RequestedWorldType = RequestedWorldType.TrimStartAndEnd().ToLower();
-
-  UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
-  UWorld* PieWorld = GEditor ? GEditor->PlayWorld : nullptr;
-  UWorld* SelectedWorld = nullptr;
-  FString ResolvedWorldType = TEXT("unavailable");
-
-  if (RequestedWorldType.Equals(TEXT("pie"))) {
-    SelectedWorld = PieWorld ? PieWorld : EditorWorld;
-    ResolvedWorldType = PieWorld ? TEXT("pie") : (EditorWorld ? TEXT("editor") : TEXT("unavailable"));
-  } else if (RequestedWorldType.Equals(TEXT("editor"))) {
-    SelectedWorld = EditorWorld ? EditorWorld : PieWorld;
-    ResolvedWorldType = EditorWorld ? TEXT("editor") : (PieWorld ? TEXT("pie") : TEXT("unavailable"));
-  } else {
-    SelectedWorld = PieWorld ? PieWorld : EditorWorld;
-    ResolvedWorldType = PieWorld ? TEXT("pie") : (EditorWorld ? TEXT("editor") : TEXT("unavailable"));
-  }
-
-  if (OutResolvedWorldType) {
-    *OutResolvedWorldType = ResolvedWorldType;
-  }
-
-  return SelectedWorld;
-}
-#endif
-
 /**
  * Sanitize a file path for use with file operations (export/import snapshot, etc.).
  * Unlike SanitizeProjectRelativePath which requires asset roots (/Game, /Engine, /Script),
@@ -2633,85 +2600,6 @@ static inline int32 GetJsonIntField(const TSharedPtr<FJsonObject>& Obj, const FS
         Obj->TryGetNumberField(Field, Value);
     }
     return static_cast<int32>(Value);
-}
-
-static inline FString DescribePropertyTypeName(const FProperty* Property) {
-  if (!Property) {
-    return TEXT("Unknown");
-  }
-
-  if (const FArrayProperty* ArrayProperty = CastField<FArrayProperty>(Property)) {
-    return FString::Printf(TEXT("Array<%s>"), *DescribePropertyTypeName(ArrayProperty->Inner));
-  }
-  if (const FMapProperty* MapProperty = CastField<FMapProperty>(Property)) {
-    return FString::Printf(TEXT("Map<%s,%s>"),
-                           *DescribePropertyTypeName(MapProperty->KeyProp),
-                           *DescribePropertyTypeName(MapProperty->ValueProp));
-  }
-  if (const FSetProperty* SetProperty = CastField<FSetProperty>(Property)) {
-    return FString::Printf(TEXT("Set<%s>"), *DescribePropertyTypeName(SetProperty->ElementProp));
-  }
-  if (const FStructProperty* StructProperty = CastField<FStructProperty>(Property)) {
-    return StructProperty->Struct ? StructProperty->Struct->GetName() : TEXT("Struct");
-  }
-  if (const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property)) {
-    return ObjectProperty->PropertyClass ? ObjectProperty->PropertyClass->GetName() : TEXT("Object");
-  }
-  if (const FClassProperty* ClassProperty = CastField<FClassProperty>(Property)) {
-    return ClassProperty->MetaClass ? FString::Printf(TEXT("Class<%s>"), *ClassProperty->MetaClass->GetName()) : TEXT("Class");
-  }
-  if (const FEnumProperty* EnumProperty = CastField<FEnumProperty>(Property)) {
-    return EnumProperty->GetEnum() ? EnumProperty->GetEnum()->GetName() : TEXT("Enum");
-  }
-  if (const FByteProperty* ByteProperty = CastField<FByteProperty>(Property)) {
-    return ByteProperty->Enum ? ByteProperty->Enum->GetName() : TEXT("byte");
-  }
-
-  return Property->GetCPPType();
-}
-
-static inline FString DescribePropertyContainerKind(const FProperty* Property) {
-  if (!Property) {
-    return TEXT("unknown");
-  }
-  if (CastField<FArrayProperty>(Property)) return TEXT("array");
-  if (CastField<FMapProperty>(Property)) return TEXT("map");
-  if (CastField<FSetProperty>(Property)) return TEXT("set");
-  if (CastField<FStructProperty>(Property)) return TEXT("struct");
-  return TEXT("scalar");
-}
-
-static inline TSharedPtr<FJsonObject> DescribePropertyMetadata(const FProperty* Property) {
-  TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-  if (!Property) {
-    return Result;
-  }
-
-  Result->SetStringField(TEXT("name"), Property->GetName());
-  Result->SetStringField(TEXT("type"), DescribePropertyTypeName(Property));
-  Result->SetStringField(TEXT("containerKind"), DescribePropertyContainerKind(Property));
-  Result->SetBoolField(TEXT("readable"), true);
-  Result->SetBoolField(TEXT("writable"), !Property->HasAnyPropertyFlags(CPF_BlueprintReadOnly | CPF_EditConst | CPF_DisableEditOnInstance));
-  Result->SetBoolField(TEXT("transient"), Property->HasAnyPropertyFlags(CPF_Transient));
-  Result->SetBoolField(TEXT("editorOnly"), Property->HasAnyPropertyFlags(CPF_EditorOnly));
-  Result->SetBoolField(TEXT("runtimeOnly"), !Property->HasAnyPropertyFlags(CPF_Edit));
-  Result->SetBoolField(TEXT("deprecated"), Property->HasAnyPropertyFlags(CPF_Deprecated));
-  Result->SetBoolField(TEXT("config"), Property->HasAnyPropertyFlags(CPF_Config));
-  Result->SetBoolField(TEXT("instancedReference"), Property->HasAnyPropertyFlags(CPF_InstancedReference));
-  return Result;
-}
-
-static inline void AppendPropertyDescriptions(const UStruct* TypeScope,
-                                              TArray<TSharedPtr<FJsonValue>>& OutProperties) {
-  if (!TypeScope) {
-    return;
-  }
-
-  for (TFieldIterator<FProperty> It(TypeScope, EFieldIteratorFlags::IncludeSuper); It; ++It) {
-    if (const FProperty* Property = *It) {
-      OutProperties.Add(MakeShared<FJsonValueObject>(DescribePropertyMetadata(Property)));
-    }
-  }
 }
 
 // Resolve a nested property path (e.g., "Transform.Location.X" or
