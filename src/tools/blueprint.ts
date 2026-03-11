@@ -6,6 +6,7 @@ import { coerceString } from '../utils/result-helpers.js';
 
 /** Response from automation actions */
 interface ActionResponse extends StandardActionResponse {
+  message?: string;
   result?: Record<string, unknown>;
   requestId?: string;
   blueprint?: unknown;
@@ -234,36 +235,51 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     type BlueprintExistsResult = { exists?: boolean; blueprintPath?: string };
 
     const checkCandidates = async (): Promise<StandardActionResponse | null> => {
-      for (const candidate of candidates) {
-        try {
-          const resp = await this.sendAction('blueprint_exists', { blueprintCandidates: [candidate], requestedPath: candidate }, { timeoutMs: Math.min(perCheck, totalTimeout) });
-          if (!resp) continue;
+      try {
+        // Optimization: Send all candidates in a single batch request to remove the N+1 bottleneck.
+        // The server's 'blueprint_exists' handler iterates through 'blueprintCandidates'
+        // and returns the first one that exists. We omit 'requestedPath' to ensure
+        // the server correctly performs batch resolution across all candidates.
+        const resp = await this.sendAction('blueprint_exists', { blueprintCandidates: candidates }, { timeoutMs: Math.min(perCheck, totalTimeout) });
+        if (!resp) return null;
 
-          const resultObj = resp.result && typeof resp.result === 'object' ? resp.result as BlueprintExistsResult : null;
-          const resolvedPath = resultObj?.blueprintPath;
-          const exists = resultObj?.exists === true;
+        const resultObj = resp.result && typeof resp.result === 'object' ? resp.result as BlueprintExistsResult : null;
+        const exists = resultObj?.exists === true;
+        const resolvedPath = resultObj?.blueprintPath;
 
-          if (exists) {
-            return successResponse(candidate, resolvedPath);
-          }
+        if (exists) {
+          return successResponse(resolvedPath ?? candidates[0], resolvedPath);
+        }
 
-          if (!shouldExist && resultObj && resultObj.exists === false) {
+        // If not found, server might return exists: false or success: false with a "requires path" error
+        const errText = [
+          typeof resp.error === 'string' ? resp.error : '',
+          (resp.error && typeof resp.error === 'object' && resp.error !== null && 'message' in resp.error) ? String((resp.error as any).message) : '',
+          typeof resp.message === 'string' ? resp.message : ''
+        ].join(' ');
+
+        const isNotFound = (resultObj?.exists === false) ||
+          (resp.success === false && errText.includes('requires a blueprint path'));
+
+        if (isNotFound) {
+          if (!shouldExist) {
             return notFoundResponse();
           }
-
-          if (resp.success === false) {
-            if (this.isUnknownActionResponse(resp)) {
-              return unknownResponse();
-            }
-            return {
-              success: false,
-              error: resp.error ?? 'BLUEPRINT_CHECK_FAILED',
-              message: resp.message ?? 'Failed to verify blueprint existence'
-            };
-          }
-        } catch (_err) {
-          continue;
+          return null; // Wait and retry
         }
+
+        if (resp.success === false) {
+          if (this.isUnknownActionResponse(resp)) {
+            return unknownResponse();
+          }
+          return {
+            success: false,
+            error: resp.error ?? 'BLUEPRINT_CHECK_FAILED',
+            message: resp.message ?? 'Failed to verify blueprint existence'
+          };
+        }
+      } catch (_err) {
+        return null;
       }
       return null;
     };
