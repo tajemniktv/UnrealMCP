@@ -5,8 +5,10 @@
 [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-TypeScript-blue)](https://github.com/modelcontextprotocol/sdk)
 [![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.0--5.7-orange)](https://www.unrealengine.com/)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-Published-green)](https://registry.modelcontextprotocol.io/)
-[![Project Board](https://img.shields.io/badge/Project-Roadmap-blueviolet?logo=github)](https://github.com/users/ChiR24/projects/3)
-[![Discussions](https://img.shields.io/badge/Discussions-Join-brightgreen?logo=github)](https://github.com/ChiR24/Unreal_mcp/discussions)
+[![Project Board](https://img.shields.io/badge/Project-Roadmap-blueviolet?logo=github)](https://github.com/users/tajemniktv/projects/3)
+[![Discussions](https://img.shields.io/badge/Discussions-Join-brightgreen?logo=github)](https://github.com/tajemniktv/UnrealMCP/discussions)
+
+⚠️ **Note: This is a local Satisfactory-oriented fork of [ChiR24/Unreal_mcp](https://github.com/ChiR24/Unreal_mcp).**
 
 A comprehensive Model Context Protocol (MCP) server that enables AI assistants to control Unreal Engine through a native C++ Automation Bridge plugin. Built with TypeScript and C++.
 
@@ -73,7 +75,7 @@ npx unreal-engine-mcp-server
 **Option B: Clone & Build**
 
 ```bash
-git clone https://github.com/ChiR24/Unreal_mcp.git
+git clone https://github.com/tajemniktv/UnrealMCP.git
 cd Unreal_mcp
 npm install
 npm run build
@@ -237,67 +239,6 @@ MCP_AUTOMATION_HOST=0.0.0.0
 
 **36 MCP tools** with action-based dispatch for comprehensive Unreal Engine automation.
 
-## Inspect Guide
-
-The local Satisfactory-oriented fork extends `inspect` into a read-only debugging surface for mounted roots, renderer triage, and mod validation.
-
-### Mounted Object Paths
-
-Mounted roots are treated as first-class object paths. These are valid:
-
-```text
-/Game/FactoryGame/...
-/Engine/EngineMaterials/...
-/TajsGraph/Materials/M_Factory.M_Factory
-/SML/BP_Config.BP_Config
-```
-
-The server preserves arbitrary plugin roots instead of rewriting them back to `/Game`.
-
-### Nested Property Paths
-
-`get_property` supports nested exported property traversal from the TypeScript layer, including array and map-like selectors:
-
-```text
-NaniteSettings.Enabled
-StaticMaterials[0].MaterialInterface
-StaticSwitchParameters[UseNanite]
-```
-
-### Renderer-Debugging Actions
-
-High-value read-only actions for modding and renderer investigation:
-
-- `get_material_summary`
-- `get_material_instance_summary`
-- `get_static_mesh_summary`
-- `get_renderer_pair_summary`
-- `get_component_render_state`
-- `get_actor_render_summary`
-- `get_viewport_render_summary`
-- `get_shader_artifact_summary`
-- `get_mod_render_debug_report`
-- `get_asset_dependency_slice`
-
-Typical flow:
-
-1. Start with `get_mod_render_debug_report` for a mount root such as `/TajsGraph`.
-2. Drill into `get_static_mesh_summary` and `get_material_summary` for suspicious assets.
-3. Use `get_renderer_pair_summary` to evaluate mesh/material pairing risks.
-4. Use `get_component_render_state` or `get_actor_render_summary` when the problem only shows up in-world.
-
-### Local Fork Deltas To Preserve
-
-When refreshing from upstream, reapply these local-fork deltas in this order:
-
-1. Verify fresh upstream TypeScript build.
-2. Verify fresh bridge compile.
-3. Reapply mounted-root TS validation and browsing support.
-4. Reapply mounted-root and inspect-routing bridge changes.
-5. Reapply optional SML config editing last.
-
-These deltas are required for Satisfactory modding workflows and should not be silently dropped during rebases.
-
 <details>
 <summary><b>Core Tools</b></summary>
 
@@ -389,6 +330,69 @@ These deltas are required for Satisfactory modding workflows and should not be s
 | `manage_sessions` | Sessions, split-screen, LAN, voice chat |
 
 </details>
+
+## Inspect Guide
+
+The local Satisfactory-oriented fork extends `inspect` into a read-only debugging surface for mounted roots, renderer triage, and mod validation.
+
+### Mounted Object Paths
+
+Mounted roots are treated as first-class object paths. These are valid:
+
+```text
+/Game/FactoryGame/...
+/Engine/EngineMaterials/...
+/TajsGraph/Materials/M_Factory.M_Factory
+/SML/BP_Config.BP_Config
+```
+
+The server preserves arbitrary plugin roots instead of rewriting them back to `/Game`.
+
+### Nested Property Paths
+
+`get_property` supports nested exported property traversal from the TypeScript layer, including array and map-like selectors:
+
+```text
+NaniteSettings.Enabled
+StaticMaterials[0].MaterialInterface
+StaticSwitchParameters[UseNanite]
+```
+
+### Renderer-Debugging Actions
+
+High-value read-only actions for modding and renderer investigation:
+
+- `get_material_summary`
+- `get_material_instance_summary`
+- `get_static_mesh_summary`
+- `get_renderer_pair_summary`
+- `get_component_render_state`
+- `get_actor_render_summary`
+- `get_viewport_render_summary`
+- `get_shader_artifact_summary`
+- `get_mod_render_debug_report`
+- `get_asset_dependency_slice`
+
+Typical flow:
+
+1. Start with `get_mod_render_debug_report` for a mount root such as `/TajsGraph`.
+2. Drill into `get_static_mesh_summary` and `get_material_summary` for suspicious assets.
+3. Use `get_renderer_pair_summary` to evaluate mesh/material pairing risks.
+4. Use `get_component_render_state` or `get_actor_render_summary` when the problem only shows up in-world.
+
+### Local Fork Deltas To Preserve
+
+When refreshing from upstream, reapply these local-fork deltas in this order:
+
+1. Verify fresh upstream TypeScript build.
+2. Verify fresh bridge compile.
+3. Reapply mounted-root TS validation and browsing support.
+4. Reapply mounted-root and inspect-routing bridge changes.
+5. Reapply optional SML config editing last.
+
+These deltas are required for Satisfactory modding workflows and should not be silently dropped during rebases.
+
+
 ### Supported Asset Types
 
 Blueprints • Materials • Textures • Static Meshes • Skeletal Meshes • Levels • Sounds • Particles • Niagara Systems • Behavior Trees
@@ -442,9 +446,9 @@ npm run test:all    # Run all tests
 
 | Resource | Description |
 | ---------- | ------------- |
-| [Project Roadmap](https://github.com/users/ChiR24/projects/3) | Track development progress across 47 phases |
-| [Discussions](https://github.com/ChiR24/Unreal_mcp/discussions) | Ask questions, share ideas, get help |
-| [Issues](https://github.com/ChiR24/Unreal_mcp/issues) | Report bugs and request features |
+| [Project Roadmap](https://github.com/users/tajemniktv/projects/3) | Track development progress across 47 phases |
+| [Discussions](https://github.com/tajemniktv/UnrealMCP/discussions) | Ask questions, share ideas, get help |
+| [Issues](https://github.com/tajemniktv/UnrealMCP/issues) | Report bugs and request features |
 
 ---
 
