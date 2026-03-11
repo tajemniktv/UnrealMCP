@@ -5,8 +5,8 @@
 [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-TypeScript-blue)](https://github.com/modelcontextprotocol/sdk)
 [![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.0--5.7-orange)](https://www.unrealengine.com/)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-Published-green)](https://registry.modelcontextprotocol.io/)
-[![Project Board](https://img.shields.io/badge/Project-Roadmap-blueviolet?logo=github)](https://github.com/users/tajemniktv/projects/3)
-[![Discussions](https://img.shields.io/badge/Discussions-Join-brightgreen?logo=github)](https://github.com/tajemniktv/UnrealMCP/discussions)
+[![Project Board](https://img.shields.io/badge/Project-Roadmap-blueviolet?logo=github)](https://github.com/users/ChiR24/projects/3)
+[![Discussions](https://img.shields.io/badge/Discussions-Join-brightgreen?logo=github)](https://github.com/ChiR24/Unreal_mcp/discussions)
 
 ⚠️ **Note: This is a local Satisfactory-oriented fork of [ChiR24/Unreal_mcp](https://github.com/ChiR24/Unreal_mcp).**
 
@@ -446,8 +446,8 @@ npm run test:all    # Run all tests
 
 | Resource | Description |
 | ---------- | ------------- |
-| [Project Roadmap](https://github.com/users/tajemniktv/projects/3) | Track development progress across 47 phases |
-| [Discussions](https://github.com/tajemniktv/UnrealMCP/discussions) | Ask questions, share ideas, get help |
+| [Project Roadmap](https://github.com/users/ChiR24/projects/3) | Track development progress across 47 phases |
+| [Discussions](https://github.com/ChiR24/Unreal_mcp/discussions) | Ask questions, share ideas, get help |
 | [Issues](https://github.com/tajemniktv/UnrealMCP/issues) | Report bugs and request features |
 
 ---
