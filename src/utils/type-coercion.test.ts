@@ -90,12 +90,24 @@ describe('toRotArray', () => {
 describe('toColor3', () => {
   it('should return undefined for invalid input', () => {
     expect(toColor3(undefined)).toBeUndefined();
+    expect(toColor3(null)).toBeUndefined();
+    expect(toColor3(123)).toBeUndefined();
+    expect(toColor3('string')).toBeUndefined();
+    expect(toColor3({ r: 255, g: 0, b: 0 })).toBeUndefined(); // Objects not arrays
+    expect(toColor3([])).toBeUndefined(); // Empty array
     expect(toColor3([1, 2])).toBeUndefined(); // Too few elements
+  });
+
+  it('should fallback invalid or missing values to 0', () => {
+    expect(toColor3([255, undefined, 0])).toEqual([255, 0, 0]);
+    expect(toColor3([null, 'abc', 100])).toEqual([0, 0, 100]);
+    expect(toColor3(['255', '128', '0'])).toEqual([255, 128, 0]); // String numbers are converted
   });
 
   it('should convert array to color tuple', () => {
     expect(toColor3([255, 128, 0])).toEqual([255, 128, 0]);
     expect(toColor3([1.0, 0.5, 0.0])).toEqual([1.0, 0.5, 0.0]);
+    expect(toColor3([255, 128, 0, 50])).toEqual([255, 128, 0]); // Ignores extra elements
   });
 });
 
