@@ -546,6 +546,7 @@ export interface InspectArgs extends HandlerArgs {
     name?: string;
     actorName?: string;
     componentName?: string;
+    componentPath?: string;
     propertyName?: string;
     propertyPath?: string;
     value?: unknown;
@@ -572,6 +573,12 @@ export interface InspectArgs extends HandlerArgs {
     destinationPath?: string;
     outputPath?: string;
     format?: string;
+    meshPath?: string;
+    materialPath?: string;
+    sourceMeshPath?: string;
+    replacementMeshPath?: string;
+    materialMap?: Record<string, string>;
+    worldType?: 'editor' | 'pie' | 'auto';
 }
 
 // ============================================================================
@@ -634,6 +641,7 @@ export interface SystemArgs extends HandlerArgs {
     arguments?: string;
     logPath?: string;
     maxLines?: number;
+    filter?: string;
 }
 
 // ============================================================================

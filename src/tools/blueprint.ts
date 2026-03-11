@@ -65,8 +65,8 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
 
   private isUnknownActionResponse(res: ActionResponse | StandardActionResponse | null | undefined): boolean {
     if (!res) return false;
-    const errStr = typeof res.error === 'string' ? res.error : '';
-    const msgStr = typeof res.message === 'string' ? res.message : '';
+    const errStr = typeof res.error === 'string' ? res.error : String(res.error || '');
+    const msgStr = typeof res.message === 'string' ? res.message : String(res.message || '');
     const txt = (errStr || msgStr).toLowerCase();
     // Only treat specific error codes as "not implemented"
     return txt.includes('unknown_action') || txt.includes('unknown automation action') || txt.includes('not_implemented') || txt === 'unknown_plugin_action';
@@ -162,7 +162,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (typeof params.save === 'boolean') payload.save = params.save;
     const res = await this.sendAction('blueprint_modify_scs', payload, { timeoutMs: params.timeoutMs, waitForEvent: !!params.waitForCompletion, waitForEventTimeoutMs: params.waitForCompletionTimeoutMs });
 
-    if (res && res.result && typeof res.result === 'object' && res.result?.error === 'SCS_UNAVAILABLE') {
+    if (res && res.result && typeof res.result === 'object' && 'error' in res.result && String(res.result.error) === 'SCS_UNAVAILABLE') {
       this.pluginBlueprintActionsAvailable = false;
       return { success: false, error: 'SCS_UNAVAILABLE', message: 'Plugin does not support construction script modification (blueprint_modify_scs)' } as const;
     }
@@ -191,7 +191,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
         this.pluginBlueprintActionsAvailable = true;
         return { ...svcResult, component: sanitizedComponentName, componentName: sanitizedComponentName, componentType: componentClass, componentClass, blueprintPath: svcResult.blueprintPath ?? primary } as const;
       }
-      if (svcResult && (this.isUnknownActionResponse(svcResult) || (svcResult.error && svcResult.error === 'SCS_UNAVAILABLE'))) {
+      if (svcResult && (this.isUnknownActionResponse(svcResult) || (svcResult.error && String(svcResult.error) === 'SCS_UNAVAILABLE'))) {
         this.pluginBlueprintActionsAvailable = false;
         return { success: false, error: 'SCS_UNAVAILABLE', message: 'Plugin does not support construction script modification (blueprint_modify_scs)' } as const;
       }
@@ -260,8 +260,8 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
 
         const isNotFound = (resultObj && resultObj.exists === false) ||
           (resp.success === false && (
-            errorStr.includes('requires a blueprint path') ||
-            messageStr.includes('requires a blueprint path')
+            (typeof resp.error === 'string' && resp.error.includes('requires a blueprint path')) ||
+            (typeof resp.message === 'string' && resp.message.includes('requires a blueprint path'))
           ));
 
         if (isNotFound) {
