@@ -17,6 +17,40 @@ interface InspectResponse {
   [key: string]: unknown;
 }
 
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function materialEntriesToPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') return entry;
+      const record = toRecord(entry);
+      return asString(record.path) ?? asString(record.objectPath) ?? asString(record.materialPath) ?? asString(record.name);
+    })
+    .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+}
+
+function classifyIssueSeverity(message: string): 'warning' | 'error' {
+  return /not found|missing|invalid|failed|mismatch/i.test(message) ? 'error' : 'warning';
+}
+
+function createIssue(category: string, message: string, evidence?: unknown): Record<string, unknown> {
+  return cleanObject({
+    category,
+    severity: classifyIssueSeverity(message),
+    message,
+    evidence
+  }) as Record<string, unknown>;
+}
+
 async function searchAssetsByMountRoot(
   tools: ITools,
   mountRoot: string,
@@ -52,6 +86,8 @@ const INSPECT_ACTION_ALIASES: Record<string, string> = {
   'get_mesh_details': 'inspect_object',
   'get_blueprint_details': 'inspect_object',
   'get_level_details': 'inspect_object',
+  'describe_class': 'inspect_class',
+  'validate_mod_runtime': 'verify_mod_runtime',
   'get_project_settings': 'get_project_settings',
   'get_editor_settings': 'get_editor_settings',
   'get_performance_stats': 'get_performance_stats',
@@ -65,13 +101,221 @@ const INSPECT_ACTION_ALIASES: Record<string, string> = {
 /**
  * Normalize inspect action names for test compatibility
  */
-function normalizeInspectAction(action: string): string {
+export function normalizeInspectAction(action: string): string {
   return INSPECT_ACTION_ALIASES[action] ?? action;
 }
 
 function looksLikeMountedObjectPath(value: string | undefined): boolean {
   if (!value) return false;
   return /^\/[A-Za-z_][A-Za-z0-9_]*(?:\/|$)/.test(value);
+}
+
+async function tryInspectAction(
+  tools: ITools,
+  action: string,
+  args: Record<string, unknown>
+): Promise<Record<string, unknown> | undefined> {
+  try {
+    const response = await executeAutomationRequest(tools, 'inspect', {
+      action,
+      ...args
+    }) as Record<string, unknown>;
+
+    if (response && response.success !== false) {
+      return cleanObject(response) as Record<string, unknown>;
+    }
+  } catch {
+    // Fallback handled by caller.
+  }
+
+  return undefined;
+}
+
+async function buildFallbackComponentRenderState(args: InspectArgs, tools: ITools): Promise<Record<string, unknown>> {
+  const componentObjectPath = await resolveComponentObjectPathFromArgs(args, tools);
+  const inspection = await executeAutomationRequest(
+    tools,
+    'inspect',
+    {
+      action: 'inspect_object',
+      objectPath: componentObjectPath,
+      detailed: true
+    },
+    'Failed to inspect component'
+  ) as InspectResponse;
+
+  const currentMesh = await executeAutomationRequest(tools, 'inspect', {
+    action: 'get_property',
+    objectPath: componentObjectPath,
+    propertyName: 'StaticMesh'
+  }) as InspectResponse;
+  const currentMaterials = await executeAutomationRequest(tools, 'inspect', {
+    action: 'get_property',
+    objectPath: componentObjectPath,
+    propertyName: 'OverrideMaterials'
+  }) as InspectResponse;
+  const visibility = await executeAutomationRequest(tools, 'inspect', {
+    action: 'get_property',
+    objectPath: componentObjectPath,
+    propertyName: 'bVisible'
+  }) as InspectResponse;
+  const mobility = await executeAutomationRequest(tools, 'inspect', {
+    action: 'get_property',
+    objectPath: componentObjectPath,
+    propertyName: 'Mobility'
+  }) as InspectResponse;
+
+  return cleanObject({
+    success: inspection.success !== false,
+    componentPath: componentObjectPath,
+    actorName: inspection.actorLabel ?? inspection.objectName,
+    currentMesh: currentMesh.value,
+    currentMaterials: currentMaterials.value,
+    visible: visibility.value,
+    mobility: mobility.value,
+    requestedWorldType: args.worldType ?? 'auto',
+    actualWorldType: 'unknown',
+    warnings: ['Bridge-native runtime render-state inspection was unavailable; this response was composed from generic inspect calls.']
+  });
+}
+
+async function buildFallbackActorRenderSummary(args: InspectArgs, tools: ITools): Promise<Record<string, unknown>> {
+  const actorName = await resolveObjectPath(args, tools, { pathKeys: [], actorKeys: ['actorName', 'name', 'objectPath'] });
+  if (!actorName) {
+    throw new Error('Invalid actorName');
+  }
+
+  const componentsResponse = await executeAutomationRequest(
+    tools,
+    'inspect',
+    {
+      action: 'get_components',
+      actorName,
+      objectPath: actorName
+    },
+    'Failed to get components'
+  ) as InspectResponse;
+
+  const components = Array.isArray(componentsResponse.components) ? componentsResponse.components : [];
+  const renderComponents = await Promise.all(
+    components.map(async (component) => {
+      return await buildFallbackComponentRenderState({
+        ...args,
+        actorName,
+        componentName: component.name,
+        componentPath: component.objectPath
+      }, tools);
+    })
+  );
+
+  return cleanObject({
+    success: true,
+    actorName,
+    requestedWorldType: args.worldType ?? 'auto',
+    actualWorldType: 'unknown',
+    componentCount: components.length,
+    renderComponentCount: renderComponents.length,
+    components: renderComponents,
+    warnings: ['Bridge-native actor render summary was unavailable; this response was composed from component inspection.']
+  });
+}
+
+async function buildFallbackFindComponentsByAsset(args: InspectArgs, tools: ITools, selector: 'mesh' | 'material'): Promise<Record<string, unknown>> {
+  const targetPath = selector === 'mesh'
+    ? asString(args.meshPath) ?? asString(args.objectPath)
+    : asString(args.materialPath) ?? asString(args.objectPath);
+
+  if (!targetPath) {
+    throw new Error(`${selector}Path is required`);
+  }
+
+  const objectsResponse = await executeAutomationRequest(tools, 'inspect', {
+    action: 'list_objects'
+  }) as InspectResponse;
+  const objects = Array.isArray(objectsResponse.objects) ? objectsResponse.objects as Array<Record<string, unknown>> : [];
+  const matches: Record<string, unknown>[] = [];
+
+  for (const object of objects.slice(0, 100)) {
+    const actorName = asString(object.name) ?? asString(object.path);
+    if (!actorName) continue;
+    const summary = await buildFallbackActorRenderSummary({ ...args, actorName }, tools);
+    const components = Array.isArray(summary.components) ? summary.components as Array<Record<string, unknown>> : [];
+    for (const component of components) {
+      if (selector === 'mesh' && asString(component.currentMesh) === targetPath) {
+        matches.push(component);
+      }
+      if (selector === 'material') {
+        const materialPaths = materialEntriesToPaths(component.currentMaterials);
+        if (materialPaths.includes(targetPath)) {
+          matches.push(component);
+        }
+      }
+    }
+  }
+
+  return cleanObject({
+    success: true,
+    targetPath,
+    count: matches.length,
+    components: matches,
+    requestedWorldType: args.worldType ?? 'auto',
+    actualWorldType: 'unknown',
+    warnings: [`Bridge-native component search for ${selector} was unavailable; this response was composed by scanning listed actors.`]
+  });
+}
+
+async function buildViewportRenderSummary(args: InspectArgs, tools: ITools): Promise<Record<string, unknown>> {
+  const [viewport, world, scene, performance, memory] = await Promise.all([
+    executeAutomationRequest(tools, 'inspect', { action: 'get_viewport_info', worldType: args.worldType ?? 'auto' }) as Promise<Record<string, unknown>>,
+    executeAutomationRequest(tools, 'inspect', { action: 'get_world_settings', worldType: args.worldType ?? 'auto' }) as Promise<Record<string, unknown>>,
+    executeAutomationRequest(tools, 'inspect', { action: 'get_scene_stats', worldType: args.worldType ?? 'auto' }) as Promise<Record<string, unknown>>,
+    executeAutomationRequest(tools, 'inspect', { action: 'get_performance_stats', worldType: args.worldType ?? 'auto' }) as Promise<Record<string, unknown>>,
+    executeAutomationRequest(tools, 'inspect', { action: 'get_memory_stats', worldType: args.worldType ?? 'auto' }) as Promise<Record<string, unknown>>
+  ]);
+
+  const warnings: string[] = [];
+  if (viewport.hasActiveViewport === false) warnings.push('No active viewport was available for render-state inspection.');
+  if (!asString(viewport.actualWorldType) || asString(viewport.actualWorldType) === 'unavailable') warnings.push('Viewport summary could not resolve an active world context.');
+
+  return cleanObject({
+    success: viewport.success !== false && world.success !== false,
+    requestedWorldType: args.worldType ?? 'auto',
+    actualWorldType: viewport.actualWorldType ?? world.actualWorldType,
+    viewport,
+    world,
+    scene,
+    performance,
+    memory,
+    warnings
+  });
+}
+
+async function inspectMeshRenderTraits(meshPath: string, tools: ITools): Promise<Record<string, unknown>> {
+  const inspection = await executeAutomationRequest(tools, 'inspect', {
+    action: 'inspect_object',
+    objectPath: meshPath,
+    detailed: true
+  }) as InspectResponse;
+  const staticMaterials = await executeAutomationRequest(tools, 'inspect', {
+    action: 'get_property',
+    objectPath: meshPath,
+    propertyName: 'StaticMaterials'
+  }) as InspectResponse;
+  const naniteSettings = await executeAutomationRequest(tools, 'inspect', {
+    action: 'get_property',
+    objectPath: meshPath,
+    propertyName: 'NaniteSettings'
+  }) as InspectResponse;
+
+  const slots = Array.isArray(staticMaterials.value) ? staticMaterials.value : [];
+  return cleanObject({
+    success: inspection.success !== false,
+    meshPath,
+    className: inspection.className,
+    slotCount: slots.length,
+    materialSlots: slots,
+    naniteSettings: naniteSettings.value
+  });
 }
 
 async function resolveComponentObjectPathFromArgs(args: HandlerArgs, tools: ITools): Promise<string> {
@@ -742,6 +986,16 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         filter: typeof plugin?.pluginName === 'string' ? plugin.pluginName : undefined,
         maxLines: 100
       }) as Record<string, unknown>;
+      const issues: Record<string, unknown>[] = [];
+      if ((objectChecks as Record<string, unknown>).count === 0) {
+        issues.push(createIssue('runtime_objects', 'No live objects were discovered for the current plugin filter.'));
+      }
+      for (const check of [...configChecks, ...widgetChecks]) {
+        const record = toRecord(check);
+        if (record.loadable === false || record.success === false) {
+          issues.push(createIssue('runtime_loadability', `Loadability verification failed for '${String(record.target ?? record.widgetPath ?? 'unknown')}'.`, record));
+        }
+      }
 
       return cleanObject({
         success: true,
@@ -749,7 +1003,141 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         configChecks,
         widgetChecks,
         objectChecks,
-        logChecks
+        logChecks,
+        issues
+      });
+    }
+
+    case 'find_components_by_mesh': {
+      const native = await tryInspectAction(tools, 'find_components_by_mesh', {
+        meshPath: argsTyped.meshPath ?? argsTyped.objectPath,
+        objectPath: argsTyped.objectPath,
+        worldType: (argsTyped as Record<string, unknown>).worldType
+      });
+      if (native) return native;
+      return await buildFallbackFindComponentsByAsset(argsTyped, tools, 'mesh');
+    }
+
+    case 'find_components_by_material': {
+      const native = await tryInspectAction(tools, 'find_components_by_material', {
+        materialPath: argsTyped.materialPath ?? argsTyped.objectPath,
+        objectPath: argsTyped.objectPath,
+        worldType: (argsTyped as Record<string, unknown>).worldType
+      });
+      if (native) return native;
+      return await buildFallbackFindComponentsByAsset(argsTyped, tools, 'material');
+    }
+
+    case 'get_component_render_state': {
+      const native = await tryInspectAction(tools, 'get_component_render_state', {
+        actorName: argsTyped.actorName,
+        componentName: argsTyped.componentName,
+        componentPath: (argsTyped as Record<string, unknown>).componentPath,
+        objectPath: argsTyped.objectPath,
+        worldType: (argsTyped as Record<string, unknown>).worldType
+      });
+      if (native) return native;
+      return await buildFallbackComponentRenderState(argsTyped, tools);
+    }
+
+    case 'get_actor_render_summary': {
+      const actorName = await resolveObjectPath(args, tools, { pathKeys: [], actorKeys: ['actorName', 'name', 'objectPath'] });
+      const native = await tryInspectAction(tools, 'get_actor_render_summary', {
+        actorName,
+        objectPath: actorName ?? argsTyped.objectPath,
+        worldType: (argsTyped as Record<string, unknown>).worldType
+      });
+      if (native) return native;
+      return await buildFallbackActorRenderSummary({ ...argsTyped, actorName }, tools);
+    }
+
+    case 'get_viewport_render_summary':
+      return await buildViewportRenderSummary(argsTyped, tools);
+
+    case 'compare_mesh_material_layout': {
+      const sourceMeshPath = asString((argsTyped as Record<string, unknown>).sourceMeshPath) ?? argsTyped.objectPath;
+      const replacementMeshPath = asString((argsTyped as Record<string, unknown>).replacementMeshPath);
+      if (!sourceMeshPath || !replacementMeshPath) {
+        throw new Error('sourceMeshPath and replacementMeshPath are required');
+      }
+
+      const [sourceMesh, replacementMesh] = await Promise.all([
+        inspectMeshRenderTraits(sourceMeshPath, tools),
+        inspectMeshRenderTraits(replacementMeshPath, tools)
+      ]);
+      const sourceSlots = Array.isArray(sourceMesh.materialSlots) ? sourceMesh.materialSlots : [];
+      const replacementSlots = Array.isArray(replacementMesh.materialSlots) ? replacementMesh.materialSlots : [];
+
+      return cleanObject({
+        success: sourceMesh.success !== false && replacementMesh.success !== false,
+        sourceMesh,
+        replacementMesh,
+        sourceSlotCount: sourceSlots.length,
+        replacementSlotCount: replacementSlots.length,
+        slotCountMatches: sourceSlots.length === replacementSlots.length,
+        warnings: sourceSlots.length === replacementSlots.length
+          ? []
+          : ['Replacement mesh does not preserve the source material slot count.']
+      });
+    }
+
+    case 'validate_replacement_compatibility': {
+      const comparison = await handleInspectTools('compare_mesh_material_layout', args, tools);
+      const comparisonRecord = comparison as Record<string, unknown>;
+      const issues: Record<string, unknown>[] = [];
+      if (comparisonRecord.slotCountMatches === false) {
+        issues.push(createIssue('slot_layout', 'Replacement mesh does not preserve the source material slot count.', comparisonRecord));
+      }
+
+      const sourceMesh = toRecord(comparisonRecord.sourceMesh);
+      const replacementMesh = toRecord(comparisonRecord.replacementMesh);
+      const sourceNanite = JSON.stringify(sourceMesh.naniteSettings ?? '');
+      const replacementNanite = JSON.stringify(replacementMesh.naniteSettings ?? '');
+      if (sourceNanite !== replacementNanite) {
+        issues.push(createIssue('nanite', 'Source and replacement meshes differ in Nanite settings.', {
+          sourceNanite: sourceMesh.naniteSettings,
+          replacementNanite: replacementMesh.naniteSettings
+        }));
+      }
+
+      return cleanObject({
+        success: issues.length === 0,
+        comparison,
+        issues,
+        suggestedNextSteps: issues.length > 0
+          ? ['Run get_viewport_render_summary', 'Run get_component_render_state on a live actor/component', 'Inspect material/render traits for the replacement asset chain']
+          : []
+      });
+    }
+
+    case 'get_mod_render_debug_report': {
+      const summary = await handleInspectTools('get_mod_summary', args, tools);
+      const summaryRecord = summary as Record<string, unknown>;
+      const mountRoot = asString(summaryRecord.mountRoot) ?? asString((argsTyped as Record<string, unknown>).mountRoot);
+      const meshAssets = mountRoot ? getAssetsFromSearchResponse(await searchAssetsByMountRoot(tools, mountRoot, ['StaticMesh'], 8)) : [];
+      const materialAssets = mountRoot ? getAssetsFromSearchResponse(await searchAssetsByMountRoot(tools, mountRoot, ['Material', 'MaterialInstanceConstant'], 8)) : [];
+      const logChecks = await executeAutomationRequest(tools, 'system_control', {
+        action: 'tail_logs',
+        filter: asString((summaryRecord.plugin as Record<string, unknown> | undefined)?.pluginName) ?? mountRoot,
+        maxLines: argsTyped.maxLines ?? 150
+      }) as Record<string, unknown>;
+
+      const sampledMeshLayouts = await Promise.all(
+        meshAssets.slice(0, 2).map(async (asset) => {
+          const meshPath = asString((asset as Record<string, unknown>).path);
+          return meshPath ? await inspectMeshRenderTraits(meshPath, tools) : undefined;
+        })
+      );
+
+      return cleanObject({
+        success: summaryRecord.success !== false,
+        mountRoot,
+        summary,
+        sampledMeshes: sampledMeshLayouts.filter(Boolean),
+        sampledMaterials: materialAssets.slice(0, 4),
+        runtimeValidation: await handleInspectTools('verify_mod_runtime', args, tools),
+        viewport: await handleInspectTools('get_viewport_render_summary', args, tools),
+        logs: logChecks
       });
     }
 

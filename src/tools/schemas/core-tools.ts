@@ -490,7 +490,10 @@ export const coreToolDefinitions: ToolDefinition[] = [
             'get_plugin_descriptor_summary', 'validate_mod_descriptor',
             'get_mod_summary', 'get_mod_workflow_summary',
             'prebuild_mod_check', 'postlaunch_mod_check',
-            'find_mod_objects', 'verify_mod_runtime',
+            'find_mod_objects', 'verify_mod_runtime', 'validate_mod_runtime',
+            'find_components_by_mesh', 'find_components_by_material',
+            'get_component_render_state', 'get_actor_render_summary', 'get_viewport_render_summary',
+            'compare_mesh_material_layout', 'validate_replacement_compatibility', 'get_mod_render_debug_report',
             'get_components', 'get_component_property', 'set_component_property',
             'inspect_class', 'list_objects',
             'get_metadata', 'add_tag', 'find_by_tag',
@@ -519,6 +522,7 @@ export const coreToolDefinitions: ToolDefinition[] = [
         actorName: commonSchemas.actorName,
         name: commonSchemas.name,
         componentName: commonSchemas.componentName,
+        componentPath: commonSchemas.stringProp,
         className: commonSchemas.stringProp,
         classPath: commonSchemas.assetPath,
         tag: commonSchemas.tagName,
@@ -528,7 +532,12 @@ export const coreToolDefinitions: ToolDefinition[] = [
         outputPath: commonSchemas.outputPath,
         format: commonSchemas.stringProp,
         logPath: commonSchemas.stringProp,
-        maxLines: commonSchemas.numberProp
+        maxLines: commonSchemas.numberProp,
+        meshPath: commonSchemas.meshPath,
+        materialPath: commonSchemas.materialPath,
+        sourceMeshPath: commonSchemas.meshPath,
+        replacementMeshPath: commonSchemas.meshPath,
+        worldType: { type: 'string', enum: ['auto', 'editor', 'pie'], description: 'World selection hint for runtime inspection actions.' }
       },
       required: ['action']
     },
