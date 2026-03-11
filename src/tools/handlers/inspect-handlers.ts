@@ -765,6 +765,51 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
 
       return cleanObject(res);
     }
+    case 'set_mod_config_root_class': {
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const params = normalizeArgs(args, [
+        { key: 'classPath', aliases: ['className', 'sectionClassPath'], required: true }
+      ]);
+
+      return cleanObject(await executeAutomationRequest(tools, 'inspect', {
+        action: 'set_mod_config_root_class',
+        objectPath,
+        classPath: extractString(params, 'classPath')
+      }) as Record<string, unknown>);
+    }
+    case 'replace_mod_config_section_class': {
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const params = normalizeArgs(args, [
+        { key: 'section', required: true },
+        { key: 'classPath', aliases: ['className', 'sectionClassPath'], required: true }
+      ]);
+
+      return cleanObject(await executeAutomationRequest(tools, 'inspect', {
+        action: 'replace_mod_config_section_class',
+        objectPath,
+        section: extractString(params, 'section'),
+        classPath: extractString(params, 'classPath')
+      }) as Record<string, unknown>);
+    }
+    case 'save_mod_config': {
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      return cleanObject(await executeAutomationRequest(tools, 'inspect', {
+        action: 'save_mod_config',
+        objectPath
+      }) as Record<string, unknown>);
+    }
     case 'resolve_mod_config_target':
     case 'resolve_blueprint_variants': {
       const objectPath = await resolveObjectPath(args, tools);

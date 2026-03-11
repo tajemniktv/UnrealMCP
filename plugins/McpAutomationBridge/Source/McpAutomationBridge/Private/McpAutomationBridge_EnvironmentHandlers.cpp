@@ -1222,6 +1222,15 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
   if (LowerSubAction.Equals(TEXT("get_mod_config_tree"))) {
     return HandleGetModConfigTree(RequestId, Payload, RequestingSocket);
   }
+  if (LowerSubAction.Equals(TEXT("set_mod_config_root_class"))) {
+    return HandleSetModConfigRootClass(RequestId, Payload, RequestingSocket);
+  }
+  if (LowerSubAction.Equals(TEXT("replace_mod_config_section_class"))) {
+    return HandleReplaceModConfigSectionClass(RequestId, Payload, RequestingSocket);
+  }
+  if (LowerSubAction.Equals(TEXT("save_mod_config"))) {
+    return HandleSaveModConfig(RequestId, Payload, RequestingSocket);
+  }
   if (LowerSubAction.Equals(TEXT("ensure_mod_config_section"))) {
     return HandleEnsureModConfigSection(RequestId, Payload, RequestingSocket);
   }

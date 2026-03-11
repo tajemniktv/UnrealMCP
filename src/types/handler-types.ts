@@ -567,6 +567,7 @@ export interface InspectArgs extends HandlerArgs {
     maxLines?: number;
     className?: string;
     classPath?: string;
+    sectionClassPath?: string;
     filter?: string;
     tag?: string;
     snapshotName?: string;

@@ -74,4 +74,27 @@ describe('Inspect Handlers', () => {
         expect(Array.isArray(result.issues)).toBe(true);
         expect((result.issues as Array<Record<string, unknown>>).length).toBeGreaterThan(0);
     });
+
+    it('forwards config root class replacement to the inspect bridge', async () => {
+        await handleInspectTools('set_mod_config_root_class', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            classPath: '/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertySection.BP_ConfigPropertySection_C'
+        }, mockTools);
+
+        const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        const inspectCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'set_mod_config_root_class');
+        expect(inspectCall).toBeTruthy();
+    });
+
+    it('forwards section class replacement to the inspect bridge', async () => {
+        await handleInspectTools('replace_mod_config_section_class', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            section: 'Graphics/Advanced',
+            classPath: '/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertySection.BP_ConfigPropertySection_C'
+        }, mockTools);
+
+        const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        const inspectCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'replace_mod_config_section_class');
+        expect(inspectCall).toBeTruthy();
+    });
 });
