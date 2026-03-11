@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
     sanitizeAssetName,
     sanitizePath,
+    normalizeMountedAssetPath,
     validatePathLength,
     validateAssetParams,
     ensureVector3,
