@@ -67,7 +67,7 @@ export async function getProjectSetting(projectPath: string, category: string, s
                 const section = iniData[sectionName];
                 if (section) {
                     if (key) {
-                        return section[key];
+                        return section[key] ?? null;
                     }
                     return section;
                 }
