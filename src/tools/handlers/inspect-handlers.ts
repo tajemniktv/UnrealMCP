@@ -799,6 +799,54 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         classPath: extractString(params, 'classPath')
       }) as Record<string, unknown>);
     }
+    case 'repair_mod_config_widget_classes': {
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const payload: Record<string, unknown> = {
+        action: 'repair_mod_config_widget_classes',
+        objectPath
+      };
+
+      const sectionClassPath =
+        asString((argsTyped as Record<string, unknown>).classPath)
+        ?? asString((argsTyped as Record<string, unknown>).className)
+        ?? asString((argsTyped as Record<string, unknown>).sectionClassPath);
+      if (sectionClassPath) {
+        payload.classPath = sectionClassPath;
+      }
+
+      const sections = Array.isArray((argsTyped as Record<string, unknown>).sections)
+        ? ((argsTyped as Record<string, unknown>).sections as unknown[]).filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        : [];
+      if (sections.length > 0) {
+        payload.sections = sections;
+      }
+
+      const properties = Array.isArray((argsTyped as Record<string, unknown>).properties)
+        ? ((argsTyped as Record<string, unknown>).properties as unknown[]).filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        : [];
+      if (properties.length > 0) {
+        payload.properties = properties;
+      }
+
+      if (typeof argsTyped.dryRun === 'boolean') {
+        payload.dryRun = argsTyped.dryRun;
+      }
+      if (typeof (argsTyped as Record<string, unknown>).plainOnly === 'boolean') {
+        payload.plainOnly = (argsTyped as Record<string, unknown>).plainOnly;
+      }
+      if (typeof (argsTyped as Record<string, unknown>).rewriteSections === 'boolean') {
+        payload.rewriteSections = (argsTyped as Record<string, unknown>).rewriteSections;
+      }
+      if (typeof (argsTyped as Record<string, unknown>).rewriteProperties === 'boolean') {
+        payload.rewriteProperties = (argsTyped as Record<string, unknown>).rewriteProperties;
+      }
+
+      return cleanObject(await executeAutomationRequest(tools, 'inspect', payload) as Record<string, unknown>);
+    }
     case 'save_mod_config': {
       const objectPath = await resolveObjectPath(args, tools);
       if (!objectPath) {

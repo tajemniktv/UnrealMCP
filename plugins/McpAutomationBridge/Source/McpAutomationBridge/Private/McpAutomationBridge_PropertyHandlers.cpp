@@ -16,7 +16,11 @@
 #include "Configuration/Properties/ConfigPropertyInteger.h"
 #include "Configuration/Properties/ConfigPropertySection.h"
 #include "Configuration/Properties/ConfigPropertyString.h"
+#include "Configuration/Properties/WidgetExtension/CP_Bool.h"
+#include "Configuration/Properties/WidgetExtension/CP_Float.h"
+#include "Configuration/Properties/WidgetExtension/CP_Integer.h"
 #include "Configuration/Properties/WidgetExtension/CP_Section.h"
+#include "Configuration/Properties/WidgetExtension/CP_String.h"
 #endif
 
 namespace {
@@ -56,6 +60,63 @@ static TSubclassOf<UConfigPropertySection> ResolveSectionClassFromPath(
 
   OutError = FString::Printf(TEXT("Unable to resolve config section class from '%s'."), *TrimmedPath);
   return nullptr;
+}
+
+static UClass* ResolveScalarWidgetClass(const FString& NormalizedType) {
+  if (NormalizedType == TEXT("bool") || NormalizedType == TEXT("boolean")) {
+    static TSoftClassPtr<UConfigPropertyBool> SoftClass{
+        FSoftObjectPath(TEXT("/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertyBool.BP_ConfigPropertyBool_C"))};
+    if (UClass* LoadedClass = SoftClass.LoadSynchronous()) {
+      return LoadedClass;
+    }
+    return UCP_Bool::StaticClass();
+  }
+
+  if (NormalizedType == TEXT("float")) {
+    static TSoftClassPtr<UConfigPropertyFloat> SoftClass{
+        FSoftObjectPath(TEXT("/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertyFloat.BP_ConfigPropertyFloat_C"))};
+    if (UClass* LoadedClass = SoftClass.LoadSynchronous()) {
+      return LoadedClass;
+    }
+    return UCP_Float::StaticClass();
+  }
+
+  if (NormalizedType == TEXT("int") || NormalizedType == TEXT("integer")) {
+    static TSoftClassPtr<UConfigPropertyInteger> SoftClass{
+        FSoftObjectPath(TEXT("/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertyInteger.BP_ConfigPropertyInteger_C"))};
+    if (UClass* LoadedClass = SoftClass.LoadSynchronous()) {
+      return LoadedClass;
+    }
+    return UCP_Integer::StaticClass();
+  }
+
+  if (NormalizedType == TEXT("string")) {
+    static TSoftClassPtr<UConfigPropertyString> SoftClass{
+        FSoftObjectPath(TEXT("/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertyString.BP_ConfigPropertyString_C"))};
+    if (UClass* LoadedClass = SoftClass.LoadSynchronous()) {
+      return LoadedClass;
+    }
+    return UCP_String::StaticClass();
+  }
+
+  return nullptr;
+}
+
+static FString GetConfigPropertyNormalizedType(const UConfigProperty* Property) {
+  if (Cast<UConfigPropertyBool>(Property)) {
+    return TEXT("bool");
+  }
+  if (Cast<UConfigPropertyFloat>(Property)) {
+    return TEXT("float");
+  }
+  if (Cast<UConfigPropertyInteger>(Property)) {
+    return TEXT("int");
+  }
+  if (Cast<UConfigPropertyString>(Property)) {
+    return TEXT("string");
+  }
+
+  return FString();
 }
 #endif
 
@@ -343,16 +404,7 @@ static UConfigProperty* CreateTypedConfigProperty(
     UObject* Outer,
     const FString& Key,
     const FString& NormalizedType) {
-  UClass* PropertyClass = nullptr;
-  if (NormalizedType == TEXT("bool") || NormalizedType == TEXT("boolean")) {
-    PropertyClass = UConfigPropertyBool::StaticClass();
-  } else if (NormalizedType == TEXT("float")) {
-    PropertyClass = UConfigPropertyFloat::StaticClass();
-  } else if (NormalizedType == TEXT("int") || NormalizedType == TEXT("integer")) {
-    PropertyClass = UConfigPropertyInteger::StaticClass();
-  } else if (NormalizedType == TEXT("string")) {
-    PropertyClass = UConfigPropertyString::StaticClass();
-  }
+  UClass* PropertyClass = ResolveScalarWidgetClass(NormalizedType);
 
   if (!PropertyClass || !Outer) {
     return nullptr;
@@ -387,9 +439,12 @@ static UConfigProperty* CloneConfigProperty(
   }
 
   if (const UConfigPropertySection* SourceSection = Cast<UConfigPropertySection>(Source)) {
-    TSubclassOf<UConfigPropertySection> SectionClass = ForcedSectionClass
-        ? ForcedSectionClass
-        : TSubclassOf<UConfigPropertySection>(SourceSection->GetClass());
+    TSubclassOf<UConfigPropertySection> SectionClass = ForcedSectionClass;
+    if (!SectionClass) {
+      SectionClass = SourceSection->GetClass() == UConfigPropertySection::StaticClass()
+          ? ResolveSectionWidgetClass()
+          : TSubclassOf<UConfigPropertySection>(SourceSection->GetClass());
+    }
     if (!SectionClass) {
       OutError = TEXT("Unable to resolve section class for config clone.");
       return nullptr;
@@ -424,34 +479,18 @@ static UConfigProperty* CloneConfigProperty(
   }
 
   UConfigProperty* NewProperty = nullptr;
-  if (const UConfigPropertyBool* BoolProperty = Cast<UConfigPropertyBool>(Source)) {
-    UConfigPropertyBool* NewBool = NewObject<UConfigPropertyBool>(Outer, UConfigPropertyBool::StaticClass(),
-                                                                  MakeUniqueObjectName(Outer, UConfigPropertyBool::StaticClass(),
-                                                                                       *FString::Printf(TEXT("%s_Property"), *Key)),
-                                                                  RF_Public | RF_Transactional);
-    NewBool->Value = BoolProperty->Value;
-    NewProperty = NewBool;
-  } else if (const UConfigPropertyFloat* FloatProperty = Cast<UConfigPropertyFloat>(Source)) {
-    UConfigPropertyFloat* NewFloat = NewObject<UConfigPropertyFloat>(Outer, UConfigPropertyFloat::StaticClass(),
-                                                                     MakeUniqueObjectName(Outer, UConfigPropertyFloat::StaticClass(),
-                                                                                          *FString::Printf(TEXT("%s_Property"), *Key)),
-                                                                     RF_Public | RF_Transactional);
-    NewFloat->Value = FloatProperty->Value;
-    NewProperty = NewFloat;
-  } else if (const UConfigPropertyInteger* IntProperty = Cast<UConfigPropertyInteger>(Source)) {
-    UConfigPropertyInteger* NewInt = NewObject<UConfigPropertyInteger>(Outer, UConfigPropertyInteger::StaticClass(),
-                                                                       MakeUniqueObjectName(Outer, UConfigPropertyInteger::StaticClass(),
-                                                                                            *FString::Printf(TEXT("%s_Property"), *Key)),
-                                                                       RF_Public | RF_Transactional);
-    NewInt->Value = IntProperty->Value;
-    NewProperty = NewInt;
-  } else if (const UConfigPropertyString* StringProperty = Cast<UConfigPropertyString>(Source)) {
-    UConfigPropertyString* NewString = NewObject<UConfigPropertyString>(Outer, UConfigPropertyString::StaticClass(),
-                                                                        MakeUniqueObjectName(Outer, UConfigPropertyString::StaticClass(),
-                                                                                             *FString::Printf(TEXT("%s_Property"), *Key)),
-                                                                        RF_Public | RF_Transactional);
-    NewString->Value = StringProperty->Value;
-    NewProperty = NewString;
+  const FString NormalizedType = GetConfigPropertyNormalizedType(Source);
+  if (!NormalizedType.IsEmpty()) {
+    NewProperty = CreateTypedConfigProperty(Outer, Key, NormalizedType);
+    if (UConfigPropertyBool* NewBool = Cast<UConfigPropertyBool>(NewProperty)) {
+      NewBool->Value = CastChecked<UConfigPropertyBool>(Source)->Value;
+    } else if (UConfigPropertyFloat* NewFloat = Cast<UConfigPropertyFloat>(NewProperty)) {
+      NewFloat->Value = CastChecked<UConfigPropertyFloat>(Source)->Value;
+    } else if (UConfigPropertyInteger* NewInt = Cast<UConfigPropertyInteger>(NewProperty)) {
+      NewInt->Value = CastChecked<UConfigPropertyInteger>(Source)->Value;
+    } else if (UConfigPropertyString* NewString = Cast<UConfigPropertyString>(NewProperty)) {
+      NewString->Value = CastChecked<UConfigPropertyString>(Source)->Value;
+    }
   }
 
   if (!NewProperty) {
@@ -461,6 +500,259 @@ static UConfigProperty* CloneConfigProperty(
 
   CopyConfigPropertyMetadata(Source, NewProperty);
   return NewProperty;
+}
+
+static FString NormalizeConfigNodePath(const FString& Path, bool bTreatAsRoot = false) {
+  const TArray<FString> Parts = SplitSectionPath(Path);
+  if (Parts.Num() == 0) {
+    return bTreatAsRoot ? TEXT("RootSection") : FString();
+  }
+  return FString::Join(Parts, TEXT("/"));
+}
+
+static FString AppendConfigNodePath(const FString& ParentPath, const FString& Segment) {
+  const FString TrimmedSegment = Segment.TrimStartAndEnd();
+  if (TrimmedSegment.IsEmpty()) {
+    return NormalizeConfigNodePath(ParentPath);
+  }
+
+  const FString NormalizedParent = NormalizeConfigNodePath(ParentPath, true);
+  if (NormalizedParent.IsEmpty() || NormalizedParent.Equals(TEXT("RootSection"), ESearchCase::IgnoreCase)) {
+    return TrimmedSegment;
+  }
+
+  return FString::Printf(TEXT("%s/%s"), *NormalizedParent, *TrimmedSegment);
+}
+
+static UClass* ResolvePlainScalarClass(const FString& NormalizedType) {
+  if (NormalizedType == TEXT("bool") || NormalizedType == TEXT("boolean")) {
+    return UConfigPropertyBool::StaticClass();
+  }
+  if (NormalizedType == TEXT("float")) {
+    return UConfigPropertyFloat::StaticClass();
+  }
+  if (NormalizedType == TEXT("int") || NormalizedType == TEXT("integer")) {
+    return UConfigPropertyInteger::StaticClass();
+  }
+  if (NormalizedType == TEXT("string")) {
+    return UConfigPropertyString::StaticClass();
+  }
+  return nullptr;
+}
+
+struct FConfigWidgetRepairOptions {
+  bool bRewriteSections = true;
+  bool bRewriteProperties = true;
+  bool bPlainOnly = true;
+  bool bDryRun = false;
+  TSet<FString> TargetSections;
+  TSet<FString> TargetProperties;
+  TSubclassOf<UConfigPropertySection> DesiredSectionClass;
+};
+
+static void AddConfigRepairChange(
+    TArray<TSharedPtr<FJsonValue>>& Changes,
+    const FString& Kind,
+    const FString& Path,
+    const UClass* FromClass,
+    const UClass* ToClass,
+    const FString& Reason,
+    const FString& NormalizedType = FString()) {
+  TSharedPtr<FJsonObject> Change = MakeShared<FJsonObject>();
+  Change->SetStringField(TEXT("kind"), Kind);
+  Change->SetStringField(TEXT("path"), NormalizeConfigNodePath(Path, Kind.Equals(TEXT("section"), ESearchCase::IgnoreCase)));
+  Change->SetStringField(TEXT("fromClass"), FromClass ? FromClass->GetName() : TEXT(""));
+  Change->SetStringField(TEXT("fromClassPath"), FromClass ? FromClass->GetPathName() : TEXT(""));
+  Change->SetStringField(TEXT("toClass"), ToClass ? ToClass->GetName() : TEXT(""));
+  Change->SetStringField(TEXT("toClassPath"), ToClass ? ToClass->GetPathName() : TEXT(""));
+  Change->SetStringField(TEXT("reason"), Reason);
+  if (!NormalizedType.IsEmpty()) {
+    Change->SetStringField(TEXT("propertyType"), NormalizedType);
+  }
+  Changes.Add(MakeShared<FJsonValueObject>(Change));
+}
+
+static bool ShouldRewriteSectionForWidgetRepair(
+    const UConfigPropertySection* Section,
+    const FString& SectionPath,
+    const FConfigWidgetRepairOptions& Options,
+    FString& OutReason) {
+  if (!Section || !Options.bRewriteSections || !Options.DesiredSectionClass) {
+    return false;
+  }
+
+  const FString NormalizedPath = NormalizeConfigNodePath(SectionPath, true);
+  if (Options.TargetSections.Num() > 0 && !Options.TargetSections.Contains(NormalizedPath)) {
+    return false;
+  }
+
+  if (Options.bPlainOnly) {
+    if (Section->GetClass() == UConfigPropertySection::StaticClass()) {
+      OutReason = TEXT("plain_section_class");
+      return true;
+    }
+    return false;
+  }
+
+  if (Section->GetClass() != Options.DesiredSectionClass.Get()) {
+    OutReason = TEXT("section_class_mismatch");
+    return true;
+  }
+
+  return false;
+}
+
+static bool ShouldRewriteScalarForWidgetRepair(
+    const UConfigProperty* Property,
+    const FString& PropertyPath,
+    const FConfigWidgetRepairOptions& Options,
+    FString& OutNormalizedType,
+    UClass*& OutDesiredClass,
+    FString& OutReason) {
+  if (!Property || !Options.bRewriteProperties) {
+    return false;
+  }
+
+  const FString NormalizedPath = NormalizeConfigNodePath(PropertyPath);
+  if (Options.TargetProperties.Num() > 0 && !Options.TargetProperties.Contains(NormalizedPath)) {
+    return false;
+  }
+
+  OutNormalizedType = GetConfigPropertyNormalizedType(Property);
+  if (OutNormalizedType.IsEmpty()) {
+    return false;
+  }
+
+  OutDesiredClass = ResolveScalarWidgetClass(OutNormalizedType);
+  if (!OutDesiredClass) {
+    return false;
+  }
+
+  if (Options.bPlainOnly) {
+    if (Property->GetClass() == ResolvePlainScalarClass(OutNormalizedType)) {
+      OutReason = TEXT("plain_scalar_class");
+      return true;
+    }
+    return false;
+  }
+
+  if (Property->GetClass() != OutDesiredClass) {
+    OutReason = TEXT("scalar_class_mismatch");
+    return true;
+  }
+
+  return false;
+}
+
+static UConfigProperty* CloneConfigPropertyForWidgetRepair(
+    const UConfigProperty* Source,
+    UObject* Outer,
+    const FString& Key,
+    const FString& CurrentPath,
+    const FConfigWidgetRepairOptions& Options,
+    TArray<TSharedPtr<FJsonValue>>& Changes,
+    FString& OutError) {
+  if (!Source || !Outer) {
+    OutError = TEXT("Widget repair clone requested with invalid source or outer.");
+    return nullptr;
+  }
+
+  if (const UConfigPropertySection* SourceSection = Cast<UConfigPropertySection>(Source)) {
+    FString RewriteReason;
+    const bool bRewriteSection =
+        ShouldRewriteSectionForWidgetRepair(SourceSection, CurrentPath, Options, RewriteReason);
+
+    TSubclassOf<UConfigPropertySection> SectionClass =
+        bRewriteSection ? Options.DesiredSectionClass : TSubclassOf<UConfigPropertySection>(SourceSection->GetClass());
+    if (!SectionClass) {
+      OutError = TEXT("Unable to resolve section class for config repair.");
+      return nullptr;
+    }
+
+    UConfigPropertySection* NewSection =
+        NewObject<UConfigPropertySection>(Outer, SectionClass,
+                                          MakeUniqueObjectName(Outer, SectionClass,
+                                                               *FString::Printf(TEXT("%s_Section"), *Key)),
+                                          RF_Public | RF_Transactional);
+    if (!NewSection) {
+      OutError = TEXT("Unable to create config section during widget repair.");
+      return nullptr;
+    }
+
+    CopyConfigPropertyMetadata(SourceSection, NewSection);
+    if (bRewriteSection) {
+      AddConfigRepairChange(Changes, TEXT("section"), CurrentPath, SourceSection->GetClass(),
+                            SectionClass.Get(), RewriteReason);
+    }
+
+    TArray<FString> ChildKeys;
+    SourceSection->SectionProperties.GenerateKeyArray(ChildKeys);
+    ChildKeys.Sort();
+    for (const FString& ChildKey : ChildKeys) {
+      const UConfigProperty* const* ChildProperty = SourceSection->SectionProperties.Find(ChildKey);
+      if (!ChildProperty || !*ChildProperty) {
+        continue;
+      }
+
+      FString ChildError;
+      UConfigProperty* ClonedChild = CloneConfigPropertyForWidgetRepair(
+          *ChildProperty,
+          NewSection,
+          ChildKey,
+          AppendConfigNodePath(CurrentPath, ChildKey),
+          Options,
+          Changes,
+          ChildError);
+      if (!ClonedChild) {
+        OutError = ChildError;
+        return nullptr;
+      }
+
+      NewSection->SectionProperties.Add(ChildKey, ClonedChild);
+    }
+
+    return NewSection;
+  }
+
+  FString NormalizedType;
+  UClass* DesiredClass = nullptr;
+  FString RewriteReason;
+  const bool bRewriteScalar = ShouldRewriteScalarForWidgetRepair(
+      Source, CurrentPath, Options, NormalizedType, DesiredClass, RewriteReason);
+
+  if (bRewriteScalar) {
+    UConfigProperty* NewProperty = CreateTypedConfigProperty(Outer, Key, NormalizedType);
+    if (!NewProperty) {
+      OutError = TEXT("Unable to create repaired config property.");
+      return nullptr;
+    }
+
+    if (UConfigPropertyBool* NewBool = Cast<UConfigPropertyBool>(NewProperty)) {
+      NewBool->Value = CastChecked<UConfigPropertyBool>(Source)->Value;
+    } else if (UConfigPropertyFloat* NewFloat = Cast<UConfigPropertyFloat>(NewProperty)) {
+      NewFloat->Value = CastChecked<UConfigPropertyFloat>(Source)->Value;
+    } else if (UConfigPropertyInteger* NewInt = Cast<UConfigPropertyInteger>(NewProperty)) {
+      NewInt->Value = CastChecked<UConfigPropertyInteger>(Source)->Value;
+    } else if (UConfigPropertyString* NewString = Cast<UConfigPropertyString>(NewProperty)) {
+      NewString->Value = CastChecked<UConfigPropertyString>(Source)->Value;
+    }
+
+    CopyConfigPropertyMetadata(Source, NewProperty);
+    AddConfigRepairChange(Changes, TEXT("property"), CurrentPath, Source->GetClass(), DesiredClass,
+                          RewriteReason, NormalizedType);
+    return NewProperty;
+  }
+
+  UConfigProperty* DuplicatedProperty =
+      DuplicateObject<UConfigProperty>(const_cast<UConfigProperty*>(Source), Outer,
+                                       MakeUniqueObjectName(Outer, Source->GetClass(),
+                                                            *FString::Printf(TEXT("%s_Property"), *Key)));
+  if (!DuplicatedProperty) {
+    OutError = TEXT("Unable to duplicate config property during widget repair.");
+    return nullptr;
+  }
+
+  return DuplicatedProperty;
 }
 
 static bool FinalizeConfigBlueprintEdit(
@@ -1414,10 +1706,14 @@ bool UMcpAutomationBridgeSubsystem::HandleRenameModConfigProperty(
       SourceProperty->DisplayName = FText::FromString(NewKey);
     }
   } else {
-    UConfigProperty* MovedProperty = DuplicateObject<UConfigProperty>(SourceProperty, TargetSection);
+    FString CloneError;
+    UConfigProperty* MovedProperty =
+        CloneConfigProperty(SourceProperty, TargetSection, NewKey, nullptr, CloneError);
     if (!MovedProperty) {
       SendAutomationError(RequestingSocket, RequestId,
-                          TEXT("Unable to duplicate config property into target section."),
+                          CloneError.IsEmpty()
+                              ? TEXT("Unable to duplicate config property into target section.")
+                              : CloneError,
                           TEXT("PROPERTY_MOVE_FAILED"));
       return true;
     }
@@ -1619,10 +1915,14 @@ bool UMcpAutomationBridgeSubsystem::HandleRenameModConfigSection(
       SourceSection->DisplayName = FText::FromString(NewSectionName);
     }
   } else {
-    UConfigPropertySection* MovedSection = DuplicateObject<UConfigPropertySection>(SourceSection, TargetParentSection);
+    FString CloneError;
+    UConfigPropertySection* MovedSection = Cast<UConfigPropertySection>(
+        CloneConfigProperty(SourceSection, TargetParentSection, NewSectionName, nullptr, CloneError));
     if (!MovedSection) {
       SendAutomationError(RequestingSocket, RequestId,
-                          TEXT("Unable to duplicate config section into target section."),
+                          CloneError.IsEmpty()
+                              ? TEXT("Unable to duplicate config section into target section.")
+                              : CloneError,
                           TEXT("SECTION_MOVE_FAILED"));
       return true;
     }
@@ -1833,6 +2133,217 @@ bool UMcpAutomationBridgeSubsystem::HandleReplaceModConfigSectionClass(
 
   SendAutomationResponse(RequestingSocket, RequestId, true,
                          TEXT("Mod config section class replaced."), ResultPayload, FString());
+  return true;
+#endif
+}
+
+bool UMcpAutomationBridgeSubsystem::HandleRepairModConfigWidgetClasses(
+    const FString &RequestId, const TSharedPtr<FJsonObject> &Payload,
+    TSharedPtr<FMcpBridgeWebSocket> RequestingSocket) {
+#if !WITH_EDITOR
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("repair_mod_config_widget_classes requires editor build."),
+                      TEXT("NOT_IMPLEMENTED"));
+  return true;
+#elif !MCP_WITH_SML
+  SendAutomationError(RequestingSocket, RequestId,
+                      TEXT("SML module is not available in this project."),
+                      TEXT("SML_NOT_AVAILABLE"));
+  return true;
+#else
+  if (!Payload.IsValid()) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        TEXT("repair_mod_config_widget_classes payload missing."),
+                        TEXT("INVALID_PAYLOAD"));
+    return true;
+  }
+
+  FString ObjectPath;
+  if (!Payload->TryGetStringField(TEXT("objectPath"), ObjectPath) || ObjectPath.TrimStartAndEnd().IsEmpty()) {
+    SendAutomationError(RequestingSocket, RequestId, TEXT("objectPath is required."), TEXT("INVALID_OBJECT"));
+    return true;
+  }
+
+  bool bDryRun = false;
+  Payload->TryGetBoolField(TEXT("dryRun"), bDryRun);
+
+  bool bPlainOnly = true;
+  if (Payload->HasField(TEXT("plainOnly"))) {
+    Payload->TryGetBoolField(TEXT("plainOnly"), bPlainOnly);
+  }
+
+  bool bRewriteSections = true;
+  if (Payload->HasField(TEXT("rewriteSections"))) {
+    Payload->TryGetBoolField(TEXT("rewriteSections"), bRewriteSections);
+  }
+
+  bool bRewriteProperties = true;
+  if (Payload->HasField(TEXT("rewriteProperties"))) {
+    Payload->TryGetBoolField(TEXT("rewriteProperties"), bRewriteProperties);
+  }
+
+  TArray<FString> RequestedSections;
+  if (const TArray<TSharedPtr<FJsonValue>>* SectionValues = nullptr;
+      Payload->TryGetArrayField(TEXT("sections"), SectionValues) && SectionValues) {
+    for (const TSharedPtr<FJsonValue>& Value : *SectionValues) {
+      if (!Value.IsValid() || Value->Type != EJson::String) {
+        continue;
+      }
+      const FString Normalized = NormalizeConfigNodePath(Value->AsString(), true);
+      if (!Normalized.IsEmpty()) {
+        RequestedSections.AddUnique(Normalized);
+      }
+    }
+  }
+
+  TArray<FString> RequestedProperties;
+  if (const TArray<TSharedPtr<FJsonValue>>* PropertyValues = nullptr;
+      Payload->TryGetArrayField(TEXT("properties"), PropertyValues) && PropertyValues) {
+    for (const TSharedPtr<FJsonValue>& Value : *PropertyValues) {
+      if (!Value.IsValid() || Value->Type != EJson::String) {
+        continue;
+      }
+      const FString Normalized = NormalizeConfigNodePath(Value->AsString());
+      if (!Normalized.IsEmpty()) {
+        RequestedProperties.AddUnique(Normalized);
+      }
+    }
+  }
+
+  FString ClassPath;
+  Payload->TryGetStringField(TEXT("classPath"), ClassPath);
+  if (ClassPath.TrimStartAndEnd().IsEmpty()) {
+    Payload->TryGetStringField(TEXT("className"), ClassPath);
+  }
+
+  FString ClassError;
+  TSubclassOf<UConfigPropertySection> DesiredSectionClass =
+      ClassPath.TrimStartAndEnd().IsEmpty() ? ResolveSectionWidgetClass() : ResolveSectionClassFromPath(ClassPath, ClassError);
+  if (!DesiredSectionClass) {
+    SendAutomationError(RequestingSocket, RequestId,
+                        ClassError.IsEmpty() ? TEXT("Unable to resolve config section widget class.") : ClassError,
+                        TEXT("INVALID_CLASS"));
+    return true;
+  }
+
+  UBlueprint* Blueprint = nullptr;
+  UModConfiguration* ConfigObject = nullptr;
+  FString ErrorMessage;
+  FString ErrorCode;
+  if (!ResolveModConfigurationBlueprint(ObjectPath, Blueprint, ConfigObject, ErrorMessage, ErrorCode)) {
+    SendAutomationError(RequestingSocket, RequestId, ErrorMessage, ErrorCode);
+    return true;
+  }
+
+  FConfigWidgetRepairOptions RepairOptions;
+  RepairOptions.bDryRun = bDryRun;
+  RepairOptions.bPlainOnly = bPlainOnly;
+  RepairOptions.bRewriteSections = bRewriteSections;
+  RepairOptions.bRewriteProperties = bRewriteProperties;
+  RepairOptions.DesiredSectionClass = DesiredSectionClass;
+  for (const FString& SectionPath : RequestedSections) {
+    RepairOptions.TargetSections.Add(SectionPath);
+  }
+  for (const FString& PropertyPath : RequestedProperties) {
+    RepairOptions.TargetProperties.Add(PropertyPath);
+  }
+
+  TArray<TSharedPtr<FJsonValue>> Changes;
+  bool bCreatedRoot = false;
+  bool bStructuralChange = false;
+  UConfigPropertySection* ReplacementRoot = nullptr;
+
+  if (!ConfigObject->RootSection) {
+    if (bRewriteSections && RepairOptions.TargetProperties.Num() == 0) {
+      AddConfigRepairChange(Changes, TEXT("section"), TEXT("RootSection"), nullptr,
+                            DesiredSectionClass.Get(), TEXT("missing_root_section"));
+      bCreatedRoot = true;
+      if (!bDryRun) {
+        Blueprint->Modify();
+        ConfigObject->Modify();
+        ReplacementRoot = NewObject<UConfigPropertySection>(
+            ConfigObject, DesiredSectionClass, TEXT("RootSection"), RF_Public | RF_Transactional);
+        if (!ReplacementRoot) {
+          SendAutomationError(RequestingSocket, RequestId,
+                              TEXT("Unable to create replacement root section."),
+                              TEXT("CONFIG_SECTION_REPLACE_FAILED"));
+          return true;
+        }
+        ReplacementRoot->DisplayName = FText::FromString(TEXT("Root"));
+        ConfigObject->RootSection = ReplacementRoot;
+        bStructuralChange = true;
+      }
+    }
+  } else {
+    FString RepairError;
+    ReplacementRoot = Cast<UConfigPropertySection>(CloneConfigPropertyForWidgetRepair(
+        ConfigObject->RootSection,
+        ConfigObject,
+        TEXT("RootSection"),
+        TEXT("RootSection"),
+        RepairOptions,
+        Changes,
+        RepairError));
+    if (!ReplacementRoot) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          RepairError.IsEmpty() ? TEXT("Unable to repair mod config widget classes.") : RepairError,
+                          TEXT("CONFIG_REPAIR_FAILED"));
+      return true;
+    }
+
+    if (!bDryRun && Changes.Num() > 0) {
+      Blueprint->Modify();
+      ConfigObject->Modify();
+      ConfigObject->RootSection = ReplacementRoot;
+      bStructuralChange = true;
+    }
+  }
+
+  TSharedPtr<FJsonObject> ResultPayload = MakeShared<FJsonObject>();
+  ResultPayload->SetStringField(TEXT("objectPath"), ObjectPath);
+  ResultPayload->SetBoolField(TEXT("dryRun"), bDryRun);
+  ResultPayload->SetBoolField(TEXT("plainOnly"), bPlainOnly);
+  ResultPayload->SetBoolField(TEXT("rewriteSections"), bRewriteSections);
+  ResultPayload->SetBoolField(TEXT("rewriteProperties"), bRewriteProperties);
+  ResultPayload->SetStringField(TEXT("sectionClassPath"), DesiredSectionClass->GetPathName());
+  ResultPayload->SetArrayField(TEXT("changes"), Changes);
+  ResultPayload->SetNumberField(TEXT("changeCount"), Changes.Num());
+  ResultPayload->SetBoolField(TEXT("changed"), Changes.Num() > 0 || bCreatedRoot);
+
+  if (RequestedSections.Num() > 0) {
+    TArray<TSharedPtr<FJsonValue>> SectionTargets;
+    for (const FString& Entry : RequestedSections) {
+      SectionTargets.Add(MakeShared<FJsonValueString>(Entry));
+    }
+    ResultPayload->SetArrayField(TEXT("targetSections"), SectionTargets);
+  }
+
+  if (RequestedProperties.Num() > 0) {
+    TArray<TSharedPtr<FJsonValue>> PropertyTargets;
+    for (const FString& Entry : RequestedProperties) {
+      PropertyTargets.Add(MakeShared<FJsonValueString>(Entry));
+    }
+    ResultPayload->SetArrayField(TEXT("targetProperties"), PropertyTargets);
+  }
+
+  ResultPayload->SetObjectField(TEXT("tree"),
+                                SerializeConfigPropertyTree(ConfigObject->RootSection, TEXT("RootSection")));
+
+  if (!bDryRun) {
+    FinalizeConfigBlueprintEdit(Blueprint, ConfigObject, bStructuralChange, ResultPayload);
+  } else {
+    AddAssetVerification(ResultPayload, Blueprint);
+  }
+
+  SendAutomationResponse(
+      RequestingSocket,
+      RequestId,
+      true,
+      bDryRun ? TEXT("Mod config widget-class repair plan generated.")
+              : (Changes.Num() > 0 || bCreatedRoot ? TEXT("Mod config widget classes repaired.")
+                                                   : TEXT("Mod config widget classes already matched the requested targets.")),
+      ResultPayload,
+      FString());
   return true;
 #endif
 }

@@ -1254,6 +1254,9 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
   if (LowerSubAction.Equals(TEXT("replace_mod_config_section_class"))) {
     return HandleReplaceModConfigSectionClass(RequestId, Payload, RequestingSocket);
   }
+  if (LowerSubAction.Equals(TEXT("repair_mod_config_widget_classes"))) {
+    return HandleRepairModConfigWidgetClasses(RequestId, Payload, RequestingSocket);
+  }
   if (LowerSubAction.Equals(TEXT("save_mod_config"))) {
     return HandleSaveModConfig(RequestId, Payload, RequestingSocket);
   }

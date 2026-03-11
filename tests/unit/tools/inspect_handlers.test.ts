@@ -97,4 +97,23 @@ describe('Inspect Handlers', () => {
         const inspectCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'replace_mod_config_section_class');
         expect(inspectCall).toBeTruthy();
     });
+
+    it('forwards config widget-class repair options to the inspect bridge', async () => {
+        await handleInspectTools('repair_mod_config_widget_classes', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            dryRun: true,
+            plainOnly: true,
+            rewriteSections: true,
+            rewriteProperties: true,
+            sections: ['Graphics', 'Graphics/Advanced'],
+            properties: ['Graphics/EnableFancyThing', 'Graphics/Advanced/ShadowSteps']
+        }, mockTools);
+
+        const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        const inspectCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'repair_mod_config_widget_classes');
+        expect(inspectCall).toBeTruthy();
+        expect(inspectCall[1]?.dryRun).toBe(true);
+        expect(inspectCall[1]?.sections).toEqual(['Graphics', 'Graphics/Advanced']);
+        expect(inspectCall[1]?.properties).toEqual(['Graphics/EnableFancyThing', 'Graphics/Advanced/ShadowSteps']);
+    });
 });

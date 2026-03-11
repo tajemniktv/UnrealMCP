@@ -233,6 +233,9 @@ private:
   bool HandleReplaceModConfigSectionClass(const FString &RequestId,
                                           const TSharedPtr<FJsonObject> &Payload,
                                           TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
+  bool HandleRepairModConfigWidgetClasses(const FString &RequestId,
+                                          const TSharedPtr<FJsonObject> &Payload,
+                                          TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
   bool HandleSaveModConfig(const FString &RequestId,
                            const TSharedPtr<FJsonObject> &Payload,
                            TSharedPtr<FMcpBridgeWebSocket> RequestingSocket);
