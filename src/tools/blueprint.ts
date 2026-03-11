@@ -252,7 +252,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
           }
 
           if (resp.success === false) {
-            if (this.isUnknownActionResponse(resp)) {
+            if (this.isUnknownActionResponse(resp as StandardActionResponse)) {
               return unknownResponse();
             }
             return {
