@@ -263,10 +263,10 @@ export class EditorTools extends BaseTool implements IEditorTools {
   async stepPIEFrame(steps: number = 1): Promise<StandardActionResponse> {
     const clampedSteps = Number.isFinite(steps) ? Math.max(1, Math.floor(steps)) : 1;
     try {
-      // Use console commands to step frames efficiently
-      const commands = Array(clampedSteps).fill('Step=1');
-      await this.bridge.executeConsoleCommands(commands);
-
+      // Use console command to step frames
+      for (let index = 0; index < clampedSteps; index += 1) {
+        await this.bridge.executeConsoleCommand('Step=1');
+      }
       return {
         success: true,
         message: `Advanced PIE by ${clampedSteps} frame(s)`,

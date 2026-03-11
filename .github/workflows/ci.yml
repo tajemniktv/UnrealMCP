@@ -33,6 +33,6 @@ jobs:
       - name: Run ESLint (TypeScript/JavaScript)
         run: |
           echo "Running ESLint (fail on warnings)"
-          npm run lint
+          npx eslint . --ext .ts --max-warnings=0
 
 

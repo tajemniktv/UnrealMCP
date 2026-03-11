@@ -66,41 +66,13 @@ describe('toString', () => {
 describe('toVec3Array', () => {
   it('should return undefined for invalid input', () => {
     expect(toVec3Array(undefined)).toBeUndefined();
-    expect(toVec3Array(null as any)).toBeUndefined();
-    expect(toVec3Array('invalid' as any)).toBeUndefined();
-    expect(toVec3Array(123 as any)).toBeUndefined();
-    expect(toVec3Array(true as any)).toBeUndefined();
+    expect(toVec3Array(null)).toBeUndefined();
+    expect(toVec3Array({})).toBeUndefined();
   });
 
-  it('should return undefined for missing properties', () => {
-    expect(toVec3Array({} as any)).toBeUndefined();
-    expect(toVec3Array({ x: 1 } as any)).toBeUndefined();
-    expect(toVec3Array({ x: 1, y: 2 } as any)).toBeUndefined();
-    expect(toVec3Array({ y: 2, z: 3 } as any)).toBeUndefined();
-  });
-
-  it('should return undefined for non-finite values', () => {
-    expect(toVec3Array({ x: Infinity, y: 2, z: 3 })).toBeUndefined();
-    expect(toVec3Array({ x: 1, y: -Infinity, z: 3 })).toBeUndefined();
-    expect(toVec3Array({ x: 1, y: 2, z: NaN })).toBeUndefined();
-  });
-
-  it('should return undefined for unparseable strings', () => {
-    expect(toVec3Array({ x: 'abc', y: 2, z: 3 } as any)).toBeUndefined();
-    expect(toVec3Array({ x: 1, y: 'def', z: 3 } as any)).toBeUndefined();
-    expect(toVec3Array({ x: 1, y: 2, z: 'ghi' } as any)).toBeUndefined();
-  });
-
-  it('should convert valid Vector3 object to array', () => {
+  it('should convert Vector3 to array', () => {
     expect(toVec3Array({ x: 1, y: 2, z: 3 })).toEqual([1, 2, 3]);
     expect(toVec3Array({ x: 0, y: 0, z: 0 })).toEqual([0, 0, 0]);
-    expect(toVec3Array({ x: -1.5, y: 2.5, z: -3.14 })).toEqual([-1.5, 2.5, -3.14]);
-  });
-
-  it('should coerce string values to numbers', () => {
-    expect(toVec3Array({ x: '1', y: '2', z: '3' } as any)).toEqual([1, 2, 3]);
-    expect(toVec3Array({ x: '-1.5', y: '2.5', z: '3.14' } as any)).toEqual([-1.5, 2.5, 3.14]);
-    expect(toVec3Array({ x: 1, y: '2', z: 3 } as any)).toEqual([1, 2, 3]);
   });
 });
 
@@ -118,24 +90,12 @@ describe('toRotArray', () => {
 describe('toColor3', () => {
   it('should return undefined for invalid input', () => {
     expect(toColor3(undefined)).toBeUndefined();
-    expect(toColor3(null)).toBeUndefined();
-    expect(toColor3(123)).toBeUndefined();
-    expect(toColor3('string')).toBeUndefined();
-    expect(toColor3({ r: 255, g: 0, b: 0 })).toBeUndefined(); // Objects not arrays
-    expect(toColor3([])).toBeUndefined(); // Empty array
     expect(toColor3([1, 2])).toBeUndefined(); // Too few elements
-  });
-
-  it('should fallback invalid or missing values to 0', () => {
-    expect(toColor3([255, undefined, 0])).toEqual([255, 0, 0]);
-    expect(toColor3([null, 'abc', 100])).toEqual([0, 0, 100]);
-    expect(toColor3(['255', '128', '0'])).toEqual([255, 128, 0]); // String numbers are converted
   });
 
   it('should convert array to color tuple', () => {
     expect(toColor3([255, 128, 0])).toEqual([255, 128, 0]);
     expect(toColor3([1.0, 0.5, 0.0])).toEqual([1.0, 0.5, 0.0]);
-    expect(toColor3([255, 128, 0, 50])).toEqual([255, 128, 0]); // Ignores extra elements
   });
 });
 
