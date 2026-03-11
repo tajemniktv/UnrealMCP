@@ -253,8 +253,8 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
         // If not found, server might return exists: false or success: false with a "requires path" error
         const isNotFound = (resultObj && resultObj.exists === false) ||
           (resp.success === false && (
-            resp.error?.includes('requires a blueprint path') ||
-            resp.message?.includes('requires a blueprint path')
+            (typeof resp.error === 'string' && resp.error.includes('requires a blueprint path')) ||
+            (typeof resp.message === 'string' && resp.message.includes('requires a blueprint path'))
           ));
 
         if (isNotFound) {
