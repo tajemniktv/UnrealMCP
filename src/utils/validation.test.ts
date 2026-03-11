@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+    normalizeMountedAssetPath,
     sanitizeAssetName,
     sanitizePath,
     validatePathLength,
@@ -10,6 +11,56 @@ import {
     ensureVector3,
     ensureRotation
 } from './validation.js';
+
+describe('normalizeMountedAssetPath', () => {
+    it('returns default root for falsy or non-string values', () => {
+        expect(normalizeMountedAssetPath('')).toBe('/Game');
+        expect(normalizeMountedAssetPath(null as any)).toBe('/Game');
+        expect(normalizeMountedAssetPath(undefined as any)).toBe('/Game');
+        expect(normalizeMountedAssetPath(123 as any)).toBe('/Game');
+    });
+
+    it('returns custom default root for falsy values', () => {
+        expect(normalizeMountedAssetPath('', '/CustomRoot')).toBe('/CustomRoot');
+        expect(normalizeMountedAssetPath(null as any, '/CustomRoot')).toBe('/CustomRoot');
+    });
+
+    it('trims whitespace', () => {
+        expect(normalizeMountedAssetPath('  /Game/Asset  ')).toBe('/Game/Asset');
+    });
+
+    it('converts backslashes to forward slashes', () => {
+        expect(normalizeMountedAssetPath('\\Game\\Asset')).toBe('/Game/Asset');
+        expect(normalizeMountedAssetPath('C:\\Some\\Path')).toBe('/C/Some/Path');
+    });
+
+    it('reduces multiple consecutive slashes to a single slash', () => {
+        expect(normalizeMountedAssetPath('//Game///Asset////Test')).toBe('/Game/Asset/Test');
+    });
+
+    it('handles empty paths after sanitization', () => {
+        // Path consists only of slashes and spaces. Slashes are normalized,
+        // then split into empty segments, which triggers the length === 0 check
+        // returning the default root '/Game'.
+        expect(normalizeMountedAssetPath('  //  \\  ')).toBe('/Asset');
+    });
+
+    it('ensures paths always start with a slash', () => {
+        expect(normalizeMountedAssetPath('Game/Asset')).toBe('/Game/Asset');
+    });
+
+    it('prevents path traversal (..) by throwing an error', () => {
+        expect(() => normalizeMountedAssetPath('/Game/../Asset')).toThrow('Path traversal (..) is not allowed');
+        expect(() => normalizeMountedAssetPath('/Game/./Asset')).toThrow('Path traversal (..) is not allowed');
+    });
+
+    it('sanitizes root and path segments', () => {
+        // Invalid characters like !@#$ are replaced with _
+        // Consecutive underscores are replaced with a single _
+        // Trailing underscores are stripped.
+        expect(normalizeMountedAssetPath('/Game!/@Asset#/Test$')).toBe('/Game/Asset/Test');
+    });
+});
 
 describe('sanitizeAssetName', () => {
     it('removes invalid characters', () => {
