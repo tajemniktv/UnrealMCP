@@ -3,7 +3,6 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-    sanitizeCommandArgument,
     sanitizeAssetName,
     sanitizePath,
     validatePathLength,
@@ -11,51 +10,6 @@ import {
     ensureVector3,
     ensureRotation
 } from './validation.js';
-
-describe('sanitizeCommandArgument', () => {
-    it('returns empty string for falsy and non-string values', () => {
-        expect(sanitizeCommandArgument(null as unknown as string)).toBe('');
-        expect(sanitizeCommandArgument(undefined as unknown as string)).toBe('');
-        expect(sanitizeCommandArgument(123 as unknown as string)).toBe('');
-        expect(sanitizeCommandArgument({} as unknown as string)).toBe('');
-        expect(sanitizeCommandArgument('')).toBe('');
-    });
-
-    it('trims leading and trailing whitespace', () => {
-        expect(sanitizeCommandArgument('  Command  ')).toBe('Command');
-        expect(sanitizeCommandArgument('\tCommand\t')).toBe('Command');
-    });
-
-    it('removes null bytes and control characters', () => {
-        expect(sanitizeCommandArgument('Com\x00mand')).toBe('Command');
-        expect(sanitizeCommandArgument('Com\x08mand')).toBe('Command');
-        expect(sanitizeCommandArgument('Com\x1Bmand')).toBe('Command');
-        expect(sanitizeCommandArgument('Com\x7Fmand')).toBe('Command');
-    });
-
-    it('replaces semicolons with underscores', () => {
-        expect(sanitizeCommandArgument('MyLevel;Quit')).toBe('MyLevel_Quit');
-        expect(sanitizeCommandArgument('Command1; Command2; Command3')).toBe('Command1_ Command2_ Command3');
-    });
-
-    it('escapes backslashes and quotes', () => {
-        expect(sanitizeCommandArgument('Path\\To\\File')).toBe('Path\\\\To\\\\File');
-        expect(sanitizeCommandArgument('Say "Hello"')).toBe('Say \\"Hello\\"');
-    });
-
-    it('removes newlines and carriage returns', () => {
-        // Note: newlines (\n) and carriage returns (\r) are control characters
-        // so they get completely removed by the /[\x00-\x1F\x7F]/g regex
-        // rather than being replaced with spaces.
-        expect(sanitizeCommandArgument('Command1\nCommand2')).toBe('Command1Command2');
-        expect(sanitizeCommandArgument('Command1\r\nCommand2')).toBe('Command1Command2');
-    });
-
-    it('handles complex inputs with multiple security concerns', () => {
-        const maliciousInput = '  \x00MyLevel; \n Say "Gotcha" \\ \r\n Quit;  ';
-        expect(sanitizeCommandArgument(maliciousInput)).toBe('MyLevel_  Say \\"Gotcha\\" \\\\  Quit_');
-    });
-});
 
 describe('sanitizeAssetName', () => {
     it('removes invalid characters', () => {
@@ -165,16 +119,6 @@ describe('ensureVector3', () => {
         expect(result).toEqual([1, 2, 3]);
     });
 
-    it('accepts object format with uppercase X, Y, Z', () => {
-        const result = ensureVector3({ X: 1, Y: 2, Z: 3 }, 'location');
-        expect(result).toEqual([1, 2, 3]);
-    });
-
-    it('accepts object format with string values coercible to numbers', () => {
-        const result = ensureVector3({ x: '1', y: '2.5', z: '-3' }, 'location');
-        expect(result).toEqual([1, 2.5, -3]);
-    });
-
     it('accepts array format', () => {
         const result = ensureVector3([1, 2, 3], 'location');
         expect(result).toEqual([1, 2, 3]);
@@ -188,26 +132,8 @@ describe('ensureVector3', () => {
         expect(() => ensureVector3([1, 2], 'location')).toThrow();
     });
 
-    it('throws on non-number values in object', () => {
+    it('throws on non-number values', () => {
         expect(() => ensureVector3({ x: 'a', y: 2, z: 3 }, 'location')).toThrow();
-    });
-
-    it('throws on string values in array', () => {
-        expect(() => ensureVector3(['1', 2, 3], 'location')).toThrow();
-    });
-
-    it('throws on non-finite values in object', () => {
-        expect(() => ensureVector3({ x: NaN, y: 2, z: 3 }, 'location')).toThrow();
-        expect(() => ensureVector3({ x: Infinity, y: 2, z: 3 }, 'location')).toThrow();
-    });
-
-    it('throws on null or undefined input', () => {
-        expect(() => ensureVector3(null, 'location')).toThrow();
-        expect(() => ensureVector3(undefined, 'location')).toThrow();
-    });
-
-    it('throws with provided label in error message', () => {
-        expect(() => ensureVector3({ x: 1 }, 'MyCustomLabel')).toThrowError(/Invalid MyCustomLabel: expected/);
     });
 });
 

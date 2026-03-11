@@ -67,26 +67,6 @@ interface AssetOperationResponse {
   [key: string]: unknown;
 }
 
-/**
- * Resolves a destination path for asset operations like duplicate and rename.
- * Handles deriving path from newName and sourcePath parent if destinationPath is missing.
- */
-function resolveAssetDestinationPath(sourcePath: string, destinationPath?: string, newName?: string): string | undefined {
-  let resolvedPath = destinationPath;
-  if (newName) {
-    if (!resolvedPath) {
-      const lastSlash = sourcePath.lastIndexOf('/');
-      const parentDir = lastSlash > 0 ? sourcePath.substring(0, lastSlash) : '/Game';
-      resolvedPath = `${parentDir}/${newName}`;
-    } else if (!resolvedPath.endsWith(newName)) {
-      if (resolvedPath.endsWith('/')) {
-        resolvedPath = `${resolvedPath}${newName}`;
-      }
-    }
-  }
-  return resolvedPath;
-}
-
 export async function handleAssetTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
   try {
     switch (action) {
@@ -200,7 +180,17 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         let destinationPath = extractOptionalString(params, 'destinationPath');
         const newName = extractOptionalString(params, 'newName');
 
-        destinationPath = resolveAssetDestinationPath(sourcePath, destinationPath, newName);
+        if (newName) {
+          if (!destinationPath) {
+            const lastSlash = sourcePath.lastIndexOf('/');
+            const parentDir = lastSlash > 0 ? sourcePath.substring(0, lastSlash) : '/Game';
+            destinationPath = `${parentDir}/${newName}`;
+          } else if (!destinationPath.endsWith(newName)) {
+            if (destinationPath.endsWith('/')) {
+              destinationPath = `${destinationPath}${newName}`;
+            }
+          }
+        }
 
         if (!destinationPath) {
           throw new Error('destinationPath or newName is required for duplicate action');
@@ -225,7 +215,11 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         let destinationPath = extractOptionalString(params, 'destinationPath');
         const newName = extractOptionalString(params, 'newName');
 
-        destinationPath = resolveAssetDestinationPath(sourcePath, destinationPath, newName);
+        if (!destinationPath && newName) {
+          const lastSlash = sourcePath.lastIndexOf('/');
+          const parentDir = lastSlash > 0 ? sourcePath.substring(0, lastSlash) : '/Game';
+          destinationPath = `${parentDir}/${newName}`;
+        }
 
         if (!destinationPath) throw new Error('Missing destinationPath or newName');
 

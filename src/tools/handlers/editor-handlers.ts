@@ -239,8 +239,9 @@ export async function handleEditorTools(action: string, args: EditorArgs, tools:
     case 'step_frame': {
       // Support stepping multiple frames
       const steps = typeof args.steps === 'number' && args.steps > 0 ? args.steps : 1;
-      const batchedCommand = Array(steps).fill('r.SingleFrameAdvance 1').join(' | ');
-      await executeAutomationRequest(tools, 'console_command', { command: batchedCommand });
+      for (let i = 0; i < steps; i++) {
+        await executeAutomationRequest(tools, 'console_command', { command: 'r.SingleFrameAdvance 1' });
+      }
       return { success: true, message: `Stepped ${steps} frame(s)`, action: 'step_frame', steps };
     }
     case 'create_bookmark': {
