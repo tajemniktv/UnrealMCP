@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+    normalizeMountedAssetPath,
     sanitizeAssetName,
     sanitizePath,
     validatePathLength,
@@ -150,5 +151,56 @@ describe('ensureRotation', () => {
 
     it('throws on invalid input', () => {
         expect(() => ensureRotation('invalid', 'rotation')).toThrow();
+    });
+});
+
+describe('normalizeMountedAssetPath', () => {
+    it('returns default root for empty, null, or undefined paths', () => {
+        expect(normalizeMountedAssetPath('')).toBe('/Game');
+        expect(normalizeMountedAssetPath(null as any)).toBe('/Game');
+        expect(normalizeMountedAssetPath(undefined as any)).toBe('/Game');
+        expect(normalizeMountedAssetPath('   ')).toBe('/Game');
+    });
+
+    it('returns default root for paths that become empty after trimming and sanitization', () => {
+        expect(normalizeMountedAssetPath('///')).toBe('/Game');
+        expect(normalizeMountedAssetPath('  /  ')).toBe('/Game');
+    });
+
+    it('replaces backslashes with forward slashes', () => {
+        expect(normalizeMountedAssetPath('\\Game\\Asset')).toBe('/Game/Asset');
+        expect(normalizeMountedAssetPath('\\\\Game\\\\Asset')).toBe('/Game/Asset');
+    });
+
+    it('reduces consecutive slashes to a single slash', () => {
+        expect(normalizeMountedAssetPath('//Game///Asset')).toBe('/Game/Asset');
+    });
+
+    it('adds a leading slash if missing', () => {
+        expect(normalizeMountedAssetPath('Game/Asset')).toBe('/Game/Asset');
+    });
+
+    it('throws an Error for path traversal attempts', () => {
+        expect(() => normalizeMountedAssetPath('/Game/../Asset')).toThrow('Path traversal (..) is not allowed');
+        expect(() => normalizeMountedAssetPath('/Game/./Asset')).toThrow('Path traversal (..) is not allowed');
+    });
+
+    it('leaves a valid root untouched', () => {
+        expect(normalizeMountedAssetPath('/Engine/Asset')).toBe('/Engine/Asset');
+    });
+
+    it('sanitizes an invalid root using sanitizeAssetName', () => {
+        expect(normalizeMountedAssetPath('/Game!/Asset')).toBe('/Game/Asset');
+        expect(normalizeMountedAssetPath('/123InvalidRoot/Asset')).toBe('/Asset_123InvalidRoot/Asset');
+    });
+
+    it('sanitizes path segments using sanitizeAssetName', () => {
+        expect(normalizeMountedAssetPath('/Game/My Asset!/Mesh')).toBe('/Game/My_Asset/Mesh');
+        expect(normalizeMountedAssetPath('/Game/Asset@Name')).toBe('/Game/Asset_Name');
+    });
+
+    it('supports a custom default root parameter', () => {
+        expect(normalizeMountedAssetPath('', '/CustomRoot')).toBe('/CustomRoot');
+        expect(normalizeMountedAssetPath('///', '/CustomRoot')).toBe('/CustomRoot');
     });
 });
