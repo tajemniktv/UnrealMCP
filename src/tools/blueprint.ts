@@ -64,8 +64,8 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
 
   private isUnknownActionResponse(res: ActionResponse | StandardActionResponse | null | undefined): boolean {
     if (!res) return false;
-    const errStr = typeof res.error === 'string' ? res.error : '';
-    const msgStr = typeof res.message === 'string' ? res.message : '';
+    const errStr = typeof res.error === 'string' ? res.error : String(res.error || '');
+    const msgStr = typeof res.message === 'string' ? res.message : String(res.message || '');
     const txt = (errStr || msgStr).toLowerCase();
     // Only treat specific error codes as "not implemented"
     return txt.includes('unknown_action') || txt.includes('unknown automation action') || txt.includes('not_implemented') || txt === 'unknown_plugin_action';
@@ -161,7 +161,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (typeof params.save === 'boolean') payload.save = params.save;
     const res = await this.sendAction('blueprint_modify_scs', payload, { timeoutMs: params.timeoutMs, waitForEvent: !!params.waitForCompletion, waitForEventTimeoutMs: params.waitForCompletionTimeoutMs });
 
-    if (res && res.result && typeof res.result === 'object' && res.result?.error === 'SCS_UNAVAILABLE') {
+    if (res && res.result && typeof res.result === 'object' && 'error' in res.result && String(res.result.error) === 'SCS_UNAVAILABLE') {
       this.pluginBlueprintActionsAvailable = false;
       return { success: false, error: 'SCS_UNAVAILABLE', message: 'Plugin does not support construction script modification (blueprint_modify_scs)' } as const;
     }
@@ -190,7 +190,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
         this.pluginBlueprintActionsAvailable = true;
         return { ...svcResult, component: sanitizedComponentName, componentName: sanitizedComponentName, componentType: componentClass, componentClass, blueprintPath: svcResult.blueprintPath ?? primary } as const;
       }
-      if (svcResult && (this.isUnknownActionResponse(svcResult) || (svcResult.error && svcResult.error === 'SCS_UNAVAILABLE'))) {
+      if (svcResult && (this.isUnknownActionResponse(svcResult) || (svcResult.error && String(svcResult.error) === 'SCS_UNAVAILABLE'))) {
         this.pluginBlueprintActionsAvailable = false;
         return { success: false, error: 'SCS_UNAVAILABLE', message: 'Plugin does not support construction script modification (blueprint_modify_scs)' } as const;
       }
@@ -234,36 +234,48 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     type BlueprintExistsResult = { exists?: boolean; blueprintPath?: string };
 
     const checkCandidates = async (): Promise<StandardActionResponse | null> => {
-      for (const candidate of candidates) {
-        try {
-          const resp = await this.sendAction('blueprint_exists', { blueprintCandidates: [candidate], requestedPath: candidate }, { timeoutMs: Math.min(perCheck, totalTimeout) });
-          if (!resp) continue;
+      try {
+        // Optimization: Send all candidates in a single batch request to remove the N+1 bottleneck.
+        // The server's 'blueprint_exists' handler iterates through 'blueprintCandidates'
+        // and returns the first one that exists. We omit 'requestedPath' to ensure
+        // the server correctly performs batch resolution across all candidates.
+        const resp = await this.sendAction('blueprint_exists', { blueprintCandidates: candidates }, { timeoutMs: Math.min(perCheck, totalTimeout) });
+        if (!resp) return null;
 
-          const resultObj = resp.result && typeof resp.result === 'object' ? resp.result as BlueprintExistsResult : null;
-          const resolvedPath = resultObj?.blueprintPath;
-          const exists = resultObj?.exists === true;
+        const resultObj = resp.result && typeof resp.result === 'object' ? resp.result as BlueprintExistsResult : null;
+        const exists = resultObj?.exists === true;
+        const resolvedPath = resultObj?.blueprintPath;
 
-          if (exists) {
-            return successResponse(candidate, resolvedPath);
-          }
+        if (exists) {
+          return successResponse(resolvedPath ?? candidates[0], resolvedPath);
+        }
 
-          if (!shouldExist && resultObj && resultObj.exists === false) {
+        // If not found, server might return exists: false or success: false with a "requires path" error
+        const isNotFound = (resultObj && resultObj.exists === false) ||
+          (resp.success === false && (
+            (typeof resp.error === 'string' && resp.error.includes('requires a blueprint path')) ||
+            (typeof resp.message === 'string' && resp.message.includes('requires a blueprint path'))
+          ));
+
+        if (isNotFound) {
+          if (!shouldExist) {
             return notFoundResponse();
           }
-
-          if (resp.success === false) {
-            if (this.isUnknownActionResponse(resp)) {
-              return unknownResponse();
-            }
-            return {
-              success: false,
-              error: typeof resp.error === 'string' ? resp.error : 'BLUEPRINT_CHECK_FAILED',
-              message: typeof resp.message === 'string' ? resp.message : 'Failed to verify blueprint existence'
-            };
-          }
-        } catch (_err) {
-          continue;
+          return null; // Wait and retry
         }
+
+        if (resp.success === false) {
+          if (this.isUnknownActionResponse(resp)) {
+            return unknownResponse();
+          }
+          return {
+            success: false,
+            error: typeof resp.error === 'string' ? resp.error : 'BLUEPRINT_CHECK_FAILED',
+            message: typeof resp.message === 'string' ? resp.message : 'Failed to verify blueprint existence'
+          };
+        }
+      } catch (_err) {
+        return null;
       }
       return null;
     };
