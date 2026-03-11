@@ -63,6 +63,6 @@ describe('Asset Handlers Security', () => {
         await handleAssetTools('list', args, mockTools);
 
         const lastCall = mockTools.automationBridge.sendAutomationRequest.mock.lastCall;
-        expect(lastCall[1].path).toBe('/MyFolder');
+        expect(lastCall[1].path).toBe('/Game/MyFolder');
     });
 });
