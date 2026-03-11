@@ -1,81 +1,162 @@
-# PROJECT KNOWLEDGE BASE
+# Unreal MCP Instructions
 
-**Generated:** 2026-02-24 19:23:00 IST
-**Commit:** 02f9b17
-**Branch:** main
+**Generated:** 2026-03-11
+**Commit:** `02f9b17`
+**Branch:** `main`
 
-## OVERVIEW
-MCP server for Unreal Engine 5 (5.0-5.7). Dual-process: TypeScript MCP server + C++ Bridge Plugin. 36 consolidated tools with action-based dispatch. Version 0.5.18.
-## STRUCTURE
-```
+## Overview
+
+Unreal MCP is a dual-process Unreal Engine automation system:
+
+- TypeScript MCP server in `src/`
+- Unreal Editor bridge plugin in `plugins/McpAutomationBridge/`
+
+It currently exposes 36 consolidated tools with action-based dispatch and supports Unreal Engine 5.0 through 5.7.
+
+## Working Rules
+
+- Produce real, working code only. Do not add placeholders, fake success paths, or dead-end stubs.
+- Read the full file before editing it.
+- Before changing Unreal plugin code, check the relevant engine APIs and existing project patterns first.
+- Useful engine reference roots in this workspace are `X:\Unreal_Engine\UE_5.0\Engine`, `X:\Unreal_Engine\UE_5.6\Engine`, and `X:\Unreal_Engine\UE_5.7\Engine`.
+
+## Repository Structure
+
+```text
 ./
-├── src/                    # TS Server (NodeNext ESM)
-│   ├── tools/              # Tool definitions + handlers
-│   │   ├── consolidated-tool-definitions.ts  # Action enums + schemas (212KB)
-│   │   ├── consolidated-tool-handlers.ts     # Tool routing
-│   │   └── handlers/       # Domain handlers (40 files)
-│   ├── automation/         # Bridge Client & Handshake (9 files)
-│   ├── utils/              # Normalization & Security
-├── Plugins/                # UE Plugin (C++) — note: "Plugins" not "plugins"
-│       ├── Source/         # Native Handlers (56 files) & Subsystem
-│       └── Config/         # Plugin Settings
-├── tests/                  # Integration + Unit Tests
-│   ├── test-runner.mjs     # Custom MCP test runner (1100+ lines)
-│   └── mcp-tools/          # Domain-specific test files (core/world/authoring/gameplay/utility)
-└── scripts/                # Maintenance & CI Helpers
+├── src/                    # TS MCP server (NodeNext ESM)
+│   ├── automation/         # Bridge client and handshake
+│   ├── tools/              # Tool definitions, routing, handlers
+│   │   ├── consolidated-tool-definitions.ts
+│   │   ├── consolidated-tool-handlers.ts
+│   │   └── handlers/
+│   └── utils/              # Validation, normalization, safety, queues
+├── plugins/                # Unreal bridge plugin (C++)
+│   └── McpAutomationBridge/
+│       ├── Source/
+│       └── Config/
+├── tests/                  # Vitest + integration coverage
+├── scripts/                # Maintenance and CI helpers
+└── .github/                # CI and Copilot metadata
 ```
 
-## WHERE TO LOOK
+## High-Signal Files
+
 | Task | Location | Notes |
-|------|----------|-------|
-| Add MCP Tool | `src/tools/consolidated-tool-definitions.ts` | Add action enum + schema |
-| Route Tool | `src/tools/consolidated-tool-handlers.ts` | Register in `registerDefaultHandlers()` |
-| Implement Handler | `src/tools/handlers/*-handlers.ts` | Call `executeAutomationRequest()` |
-| Add UE Action | `Plugins/.../Private/*Handlers.cpp` | Register in `Subsystem::InitializeHandlers()` |
-| Fix UE Crashes | `McpAutomationBridgeHelpers.h` | Use `McpSafeAssetSave` for 5.7+ |
-| Path Handling | `src/utils/normalize.ts` | Force `/Game/` prefix |
-| CI Workflows | `.github/workflows/` | All actions use commit SHAs (secure) |
-| Version Sync | `.github/workflows/bump-version.yml` | Updates 4 files atomically |
+| ------ | ---------- | ------- |
+| Add/extend tool schema | `src/tools/consolidated-tool-definitions.ts` | Action enums plus input/output schemas |
+| Register tool routing | `src/tools/consolidated-tool-handlers.ts` | Uses `toolRegistry.register()` |
+| Implement TS domain logic | `src/tools/handlers/*-handlers.ts` | Prefer `executeAutomationRequest()` |
+| Validate tool results | `src/utils/response-validator.ts` | AJV output validation |
+| Bridge connection logic | `src/automation/bridge.ts` | WebSocket client, ports, env overrides |
+| Protect runtime stdout | `src/index.ts` | `routeStdoutLogsToStderr()` |
+| Silence env loading | `src/config.ts` | Prevents stdout corruption |
+| Filter console commands | `src/utils/command-validator.ts` | Do not bypass |
+| Queue/throttle UE calls | `src/utils/unreal-command-queue.ts` | Retries and rate control |
+| Implement Unreal actions | `plugins/McpAutomationBridge/Source/Private/*Handlers.cpp` | Register in subsystem initialization |
+| UE save safety helpers | `plugins/McpAutomationBridge/Source/**/McpAutomationBridgeHelpers.h` | Use safe asset save helpers |
 
-## CONVENTIONS
-### Dual-Process Flow
-1. **TS (MCP)**: Validates JSON Schema → Executes Tool Handler.
-2. **Bridge (WS)**: TS sends JSON payload → C++ Subsystem dispatches to Game Thread.
-3. **Execution**: C++ handler performs native UE API calls → Returns JSON result.
+## Core Architecture
 
-### UE 5.7 Safety
-- **NO `UPackage::SavePackage()`**: Causes access violations in 5.7. Use `McpSafeAssetSave`.
-- **SCS Ownership**: Component templates must be created via `SCS->CreateNode()` and `AddNode()`.
-- **`ANY_PACKAGE`**: Deprecated. Use `nullptr` for path lookups.
+1. TypeScript validates tool input against JSON schema.
+2. Tool handlers dispatch through the registry and bridge helpers.
+3. The TS bridge sends JSON payloads over WebSocket to the Unreal plugin.
+4. The C++ subsystem dispatches on the game thread, executes native Unreal APIs, and returns JSON results.
 
-### TypeScript Standards
-- **Zero-Any Policy**: Strictly no `as any` in runtime code. Use `unknown` or interfaces.
-- **Strict Mode**: Full TypeScript strict mode enabled (all checks).
-- **Colocate Tests**: Unit tests (`.test.ts`) with source, integration in `tests/`.
+## Non-Obvious Constraints
 
-## ANTI-PATTERNS
-- **Console Hacks**: Never use `scripts/remove-saveasset.py` (legacy).
-- **Hardcoded Paths**: Avoid `X:\` or `C:\` absolute paths in scripts.
-- **Breaking STDOUT**: Never `console.log` in runtime (JSON-RPC only).
-- **Incomplete Tools**: No "Not Implemented" stubs. 100% TS + C++ coverage required.
-- **Bypass Registry**: Always use `toolRegistry.register()`, never call handlers directly.
-- **Raw WS Calls**: Use `executeAutomationRequest()` instead of WebSocket directly.
+### MCP I/O safety
 
-## UNIQUE STYLES
-- **Consolidated Tools**: 36 tools with action-based dispatch (single schema file).
-- **Dual Test Runners**: Vitest (unit) + Custom MCP runner (integration).
-- **Mock Mode**: Set `MOCK_UNREAL_CONNECTION=true` for offline CI.
-- **Non-Standard Layout**: `src/tools/handlers/` nested 2 levels deep.
+- Keep runtime stdout JSON-only.
+- Never add `console.log` in runtime paths.
+- Send logs through the project logger; `routeStdoutLogsToStderr()` exists specifically to protect JSON-RPC traffic.
+- `.env` loading is intentionally quiet; do not reintroduce noisy startup logging.
 
-## COMMANDS
+### Unreal 5.7 safety
+
+- Do not use `UPackage::SavePackage()` on 5.7 code paths; use the project safe-save helpers.
+- SCS component templates must be created through `SCS->CreateNode()` and `AddNode()`.
+- `ANY_PACKAGE` is deprecated; use `nullptr` for path lookups.
+
+### Path and command safety
+
+- Prefer `/Game/...` asset paths.
+- Respect existing `/Content` to `/Game` normalization layers; do not invent competing path rules.
+- Console commands must go through the command validator.
+- Unreal calls should go through the existing queue/retry layer.
+
+## TypeScript Standards
+
+- Strict mode is on; keep it that way.
+- No `as any` in runtime code.
+- Prefer `unknown`, explicit interfaces, and schema-backed parsing.
+- Keep unit tests colocated when appropriate; keep broader integration coverage in `tests/`.
+
+## Connection and Runtime Configuration
+
+- The Unreal plugin listens on `127.0.0.1` using ports `8090,8091` by default.
+- The TS bridge connects as a WebSocket client.
+- Port overrides are supported through environment variables such as `MCP_AUTOMATION_CLIENT_PORT` and `MCP_AUTOMATION_WS_PORTS`.
+- Set `MOCK_UNREAL_CONNECTION=true` to force offline/mock bridge success in CI or local smoke runs.
+
+## Tooling Workflow
+
+### Adding a new action end-to-end
+
+1. Extend the relevant action enum and schemas in `src/tools/consolidated-tool-definitions.ts`.
+2. Route the action in `src/tools/consolidated-tool-handlers.ts` or the appropriate domain handler file.
+3. Implement the Unreal-side action in the appropriate C++ handler and register it in `UMcpAutomationBridgeSubsystem::InitializeHandlers()`.
+4. Add or update tests in `tests/`.
+
+### Required conventions
+
+- Always use `toolRegistry.register()`. Do not call handlers directly.
+- Always reach Unreal through `executeAutomationRequest()` rather than raw WebSocket calls.
+- Do not leave action stubs half-implemented across TS and C++.
+
+## Anti-Patterns
+
+- No runtime `console.log`.
+- No raw WebSocket calls from tool handlers.
+- No direct handler bypass around the registry.
+- No hardcoded machine-specific paths.
+- No legacy save hacks or deprecated save paths.
+- No incomplete tool implementations that stop at schema or TS routing without C++ support.
+
+## Commands
+
 ```bash
-npm run build:core   # Build TypeScript
-npm run test:unit    # Vitest unit tests
-npm test             # UE Integration (Requires Editor)
-npm run test:smoke   # Mock mode smoke test
+npm install            # Install dependencies
+npm run dev            # ts-node-esm development server
+npm start              # Run built server
+npm run build          # Clean + build
+npm run build:core     # Build TypeScript
+npm run automation:sync
+npm run lint           # ESLint entrypoint
+npm run lint:cpp
+npm run lint:csharp
+npm run test:unit      # Vitest
+npm test               # Integration tests (requires Unreal Editor unless mocked)
+npm run test:smoke     # Mock-mode smoke test
 ```
 
-## NOTES
-- **Engine Reference**: Check engine code at `X:\Unreal_Engine\UE_5.7\Engine`, `UE_5.6`, `UE_5.3`.
-- **Version Files**: Version in `package.json`, `server.json`, `src/index.ts`.
-- **Test Patterns**: Integration tests use pipe-separated expectations (`success|error|timeout`).
+## Setup Notes
+
+- Requires Node.js 18 or newer.
+- Requires Unreal Engine 5.0 through 5.7.
+- After plugin changes, regenerate project files and rebuild the Unreal project as needed.
+- The bridge is considered healthy when the Unreal side reports that the automation bridge is listening.
+
+## Testing Notes
+
+- Unit tests run with Vitest.
+- Integration coverage lives under `tests/`.
+- Use mock mode when Unreal is unavailable.
+- Keep test expectations aligned with the current action contract and response schema.
+
+## Project-Specific Notes
+
+- This repo uses consolidated tools rather than one-file-per-tool sprawl.
+- Integration tests support pipe-separated expectations such as `success|error|timeout`.
+- Version data is synchronized across `package.json`, `server.json`, and `src/index.ts`.
+- CI workflows pin actions by commit SHA.
