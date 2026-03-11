@@ -107,6 +107,32 @@ static bool ComponentUsesFallbackMaterial(UMeshComponent* MeshComponent) {
   return false;
 }
 
+static AActor* FindActorByNameInWorld(UWorld* World, const FString& ActorName) {
+  if (!World || ActorName.IsEmpty()) {
+    return nullptr;
+  }
+
+  for (TActorIterator<AActor> It(World); It; ++It) {
+    AActor* Actor = *It;
+    if (!Actor) {
+      continue;
+    }
+
+#if WITH_EDITOR
+    if (Actor->GetActorLabel().Equals(ActorName, ESearchCase::IgnoreCase)) {
+      return Actor;
+    }
+#endif
+
+    if (Actor->GetName().Equals(ActorName, ESearchCase::IgnoreCase) ||
+        Actor->GetPathName().Equals(ActorName, ESearchCase::IgnoreCase)) {
+      return Actor;
+    }
+  }
+
+  return nullptr;
+}
+
 static TSharedPtr<FJsonObject> BuildComponentRenderStateObject(UActorComponent* Component, const FString& ActualWorldType, const FString& RequestedWorldType) {
   TSharedPtr<FJsonObject> ComponentObj = MakeShared<FJsonObject>();
   if (!Component) {
@@ -180,7 +206,7 @@ static UActorComponent* ResolveComponentFromPayload(const TSharedPtr<FJsonObject
     if (ComponentPath.Contains(TEXT("."))) {
       const FString ActorSegment = ComponentPath.Left(ComponentPath.Find(TEXT(".")));
       const FString ComponentSegment = ComponentPath.RightChop(ActorSegment.Len() + 1);
-      if (AActor* Actor = FindActorByName(ActorSegment)) {
+      if (AActor* Actor = FindActorByNameInWorld(TargetWorld, ActorSegment)) {
         if (UActorComponent* Component = FindComponentByName(Actor, ComponentSegment)) {
           return Component;
         }
@@ -189,7 +215,7 @@ static UActorComponent* ResolveComponentFromPayload(const TSharedPtr<FJsonObject
   }
 
   if (!ActorName.IsEmpty() && !ComponentName.IsEmpty()) {
-    if (AActor* Actor = FindActorByName(ActorName)) {
+    if (AActor* Actor = FindActorByNameInWorld(TargetWorld, ActorName)) {
       if (UActorComponent* Component = FindComponentByName(Actor, ComponentName)) {
         return Component;
       }
