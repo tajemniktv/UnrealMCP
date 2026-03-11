@@ -234,7 +234,7 @@ describe('normalizeTransformInput', () => {
 
     it('normalizes string numbers in components', () => {
         const result = normalizeTransformInput({
-            location: { x: "100", y: "200.5" }
+            location: { x: '100', y: '200.5' }
         });
         expect(result).toEqual({
             location: { x: 100, y: 200.5 }
@@ -243,7 +243,7 @@ describe('normalizeTransformInput', () => {
 
     it('filters out invalid numbers in components', () => {
         const result = normalizeTransformInput({
-            location: { x: NaN, y: Infinity, z: "abc" },
+            location: { x: NaN, y: Infinity, z: 'abc' },
             scale: { x: 1 }
         });
         expect(result).toEqual({
@@ -256,7 +256,7 @@ describe('normalizeTransformInput', () => {
     });
 
     it('returns undefined for object with unrelated keys', () => {
-        expect(normalizeTransformInput({ foo: "bar" })).toBeUndefined();
+        expect(normalizeTransformInput({ foo: 'bar' })).toBeUndefined();
     });
 
     it('returns undefined for invalid input', () => {
