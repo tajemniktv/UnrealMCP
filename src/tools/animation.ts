@@ -303,10 +303,15 @@ export class AnimationTools {
               }
             });
 
+            const bridge = this.automationBridge;
+            if (!bridge) {
+              return { success: false, message: 'Automation bridge not available', error: 'AUTOMATION_BRIDGE_UNAVAILABLE' };
+            }
+
             // Add states if provided
             if (normalizedStates.length > 0) {
               await Promise.all(normalizedStates.map(state =>
-                this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
+                bridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
                   subAction: 'add_state',
                   blueprintPath,
                   stateMachineName: machineName,
@@ -318,7 +323,7 @@ export class AnimationTools {
             // Add transitions if provided
             if (normalizedTransitions.length > 0) {
               await Promise.all(normalizedTransitions.map(transition =>
-                this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
+                bridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
                   subAction: 'add_transition',
                   blueprintPath,
                   stateMachineName: machineName,
