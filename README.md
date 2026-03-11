@@ -43,6 +43,7 @@ A comprehensive Model Context Protocol (MCP) server that enables AI assistants t
 | **Graph Editing** | Blueprint, Niagara, Material, and Behavior Tree graph manipulation |
 | **Audio** | Sound cues, audio components, sound mixes, ambient sounds |
 | **System** | Console commands, UBT, tests, logs, project settings, CVars |
+| **Modding & Triage** | Inspect mounted object paths, renderer triage, validate SML configs |
 
 ### Architecture
 
@@ -249,7 +250,7 @@ MCP_AUTOMATION_HOST=0.0.0.0
 | `control_editor` | PIE, Camera, viewport, screenshots |
 | `manage_level` | Load/Save, World Partition, streaming |
 | `system_control` | UBT, Tests, Logs, Project Settings, CVars |
-| `inspect` | Object Introspection |
+| `inspect` | **[FORK]** Extended Object Introspection, Mod validation, SML Config Editing, Renderer Triage |
 | `manage_pipeline` | Build automation, UBT compilation, status checks |
 | `manage_tools` | Dynamic tool management (enable/disable at runtime) |
 
