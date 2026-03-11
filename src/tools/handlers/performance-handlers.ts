@@ -147,9 +147,9 @@ export async function handlePerformanceTools(action: string, args: HandlerArgs, 
         `t.MaxFPS ${maxFPS}`,
       ];
       
-      for (const cmd of commands) {
-        await executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd });
-      }
+      await Promise.all(commands.map(cmd =>
+        executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd })
+      ));
       
       return { 
         success: true, 
@@ -190,9 +190,9 @@ export async function handlePerformanceTools(action: string, args: HandlerArgs, 
         commands.push(`r.MeshDrawCommands.DynamicInstancing ${mergeParams.enableInstancing ? 1 : 0}`);
       }
       
-      for (const cmd of commands) {
-        await executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd });
-      }
+      await Promise.all(commands.map(cmd =>
+        executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd })
+      ));
       
       return { success: true, message: 'Draw call optimization configured' };
     }
@@ -205,9 +205,9 @@ export async function handlePerformanceTools(action: string, args: HandlerArgs, 
         commands.push(`FreezeRendering ${argsRecord.freezeRendering ? 1 : 0}`);
       }
       
-      for (const cmd of commands) {
-        await executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd });
-      }
+      await Promise.all(commands.map(cmd =>
+        executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd })
+      ));
       
       return { success: true, message: 'Occlusion culling configured' };
     }
@@ -225,9 +225,9 @@ export async function handlePerformanceTools(action: string, args: HandlerArgs, 
         commands.push('RecompileShaders changed');
       }
       
-      for (const cmd of commands) {
-        await executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd });
-      }
+      await Promise.all(commands.map(cmd =>
+        executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd })
+      ));
       
       return { success: true, message: 'Shader optimization configured' };
     }
@@ -251,9 +251,9 @@ export async function handlePerformanceTools(action: string, args: HandlerArgs, 
         commands.push(`wp.Runtime.CellSize ${argsRecord.cellSize}`);
       }
       
-      for (const cmd of commands) {
-        await executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd });
-      }
+      await Promise.all(commands.map(cmd =>
+        executeAutomationRequest(tools, TOOL_ACTIONS.CONSOLE_COMMAND, { command: cmd })
+      ));
       
       return { success: true, message: 'World Partition configured' };
     }
