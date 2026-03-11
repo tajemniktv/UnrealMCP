@@ -161,7 +161,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (typeof params.save === 'boolean') payload.save = params.save;
     const res = await this.sendAction('blueprint_modify_scs', payload, { timeoutMs: params.timeoutMs, waitForEvent: !!params.waitForCompletion, waitForEventTimeoutMs: params.waitForCompletionTimeoutMs });
 
-    if (res && res.result && typeof res.result === 'object' && res.result?.error === 'SCS_UNAVAILABLE') {
+    if (res && res.result && typeof res.result === 'object' && 'error' in res.result && res.result.error === 'SCS_UNAVAILABLE') {
       this.pluginBlueprintActionsAvailable = false;
       return { success: false, error: 'SCS_UNAVAILABLE', message: 'Plugin does not support construction script modification (blueprint_modify_scs)' } as const;
     }
