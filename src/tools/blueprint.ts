@@ -240,15 +240,25 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
           if (!resp) continue;
 
           const resultObj = resp.result && typeof resp.result === 'object' ? resp.result as BlueprintExistsResult : null;
-          const resolvedPath = resultObj?.blueprintPath;
           const exists = resultObj?.exists === true;
+          const resolvedPath = resultObj?.blueprintPath;
 
           if (exists) {
-            return successResponse(candidate, resolvedPath);
+            return successResponse(resolvedPath ?? candidate, resolvedPath);
           }
 
-          if (!shouldExist && resultObj && resultObj.exists === false) {
-            return notFoundResponse();
+          // If not found, server might return exists: false or success: false with a "requires path" error
+          const isNotFound = (resultObj && resultObj.exists === false) ||
+            (resp.success === false && (
+              (typeof resp.error === 'string' && resp.error.includes('requires a blueprint path')) ||
+              (typeof resp.message === 'string' && resp.message.includes('requires a blueprint path'))
+            ));
+
+          if (isNotFound) {
+            if (!shouldExist) {
+              return notFoundResponse();
+            }
+            return null; // Wait and retry
           }
 
           if (resp.success === false) {
@@ -303,7 +313,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
       if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_get' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'BLUEPRINT_GET_FAILED', message: pluginResp?.message ?? 'Failed to get blueprint via automation bridge' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'BLUEPRINT_GET_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to get blueprint via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
@@ -337,7 +347,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_get' } as const;
       }
 
-      return { success: false, error: resp?.error ?? 'BLUEPRINT_GET_FAILED', message: resp?.message ?? 'Failed to get blueprint via automation bridge' } as const;
+      return { success: false, error: typeof resp?.error === 'string' ? resp.error : 'BLUEPRINT_GET_FAILED', message: typeof resp?.message === 'string' ? resp.message : 'Failed to get blueprint via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
@@ -365,7 +375,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
       return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_add_variable' } as const;
     }
-    return { success: false, error: pluginResp?.error ?? 'BLUEPRINT_ADD_VARIABLE_FAILED', message: pluginResp?.message ?? 'Failed to add variable via automation bridge' } as const;
+    return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'BLUEPRINT_ADD_VARIABLE_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to add variable via automation bridge' } as const;
   }
 
   async removeVariable(params: { blueprintName: string; variableName: string; timeoutMs?: number; waitForCompletion?: boolean; waitForCompletionTimeoutMs?: number }): Promise<StandardActionResponse> {
@@ -377,7 +387,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
       return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_remove_variable' } as const;
     }
-    return { success: false, error: pluginResp?.error ?? 'BLUEPRINT_REMOVE_VARIABLE_FAILED', message: pluginResp?.message ?? 'Failed to remove variable via automation bridge' } as const;
+    return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'BLUEPRINT_REMOVE_VARIABLE_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to remove variable via automation bridge' } as const;
   }
 
   async renameVariable(params: { blueprintName: string; oldName: string; newName: string; timeoutMs?: number; waitForCompletion?: boolean; waitForCompletionTimeoutMs?: number }): Promise<StandardActionResponse> {
@@ -389,7 +399,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
       return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_rename_variable' } as const;
     }
-    return { success: false, error: pluginResp?.error ?? 'BLUEPRINT_RENAME_VARIABLE_FAILED', message: pluginResp?.message ?? 'Failed to rename variable via automation bridge' } as const;
+    return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'BLUEPRINT_RENAME_VARIABLE_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to rename variable via automation bridge' } as const;
   }
 
 
@@ -405,7 +415,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
       return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_add_event' } as const;
     }
-    return { success: false, error: pluginResp?.error ?? 'BLUEPRINT_ADD_EVENT_FAILED', message: pluginResp?.message ?? 'Failed to add event via automation bridge' } as const;
+    return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'BLUEPRINT_ADD_EVENT_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to add event via automation bridge' } as const;
   }
 
   async removeEvent(params: { blueprintName: string; eventName: string; customEventName?: string; timeoutMs?: number; waitForCompletion?: boolean; waitForCompletionTimeoutMs?: number }): Promise<StandardActionResponse> {
@@ -425,7 +435,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
       if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_remove_event' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'BLUEPRINT_REMOVE_EVENT_FAILED', message: pluginResp?.message ?? 'Failed to remove event via automation bridge' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'BLUEPRINT_REMOVE_EVENT_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to remove event via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
@@ -442,7 +452,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
       return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_add_function' } as const;
     }
-    return { success: false, error: pluginResp?.error ?? 'BLUEPRINT_ADD_FUNCTION_FAILED', message: pluginResp?.message ?? 'Failed to add function via automation bridge' } as const;
+    return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'BLUEPRINT_ADD_FUNCTION_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to add function via automation bridge' } as const;
   }
 
   async setVariableMetadata(params: { blueprintName: string; variableName: string; metadata: Record<string, unknown>; timeoutMs?: number }): Promise<StandardActionResponse> {
@@ -456,7 +466,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
       return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_set_variable_metadata' } as const;
     }
-    return { success: false, error: pluginResp?.error ?? 'SET_VARIABLE_METADATA_FAILED', message: pluginResp?.message ?? 'Failed to set variable metadata via automation bridge' } as const;
+    return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'SET_VARIABLE_METADATA_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to set variable metadata via automation bridge' } as const;
   }
 
   async addConstructionScript(params: { blueprintName: string; scriptName: string; timeoutMs?: number; waitForCompletion?: boolean; waitForCompletionTimeoutMs?: number }): Promise<StandardActionResponse> {
@@ -468,7 +478,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
     if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
       return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_add_construction_script' } as const;
     }
-    return { success: false, error: pluginResp?.error ?? 'ADD_CONSTRUCTION_SCRIPT_FAILED', message: pluginResp?.message ?? 'Failed to add construction script via automation bridge' } as const;
+    return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'ADD_CONSTRUCTION_SCRIPT_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to add construction script via automation bridge' } as const;
   }
 
   async compileBlueprint(params: { blueprintName: string; saveAfterCompile?: boolean; }): Promise<StandardActionResponse> {
@@ -487,7 +497,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
         this.pluginBlueprintActionsAvailable = false;
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement blueprint_compile' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'BLUEPRINT_COMPILE_FAILED', message: pluginResp?.message ?? 'Failed to compile blueprint via automation bridge' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'BLUEPRINT_COMPILE_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to compile blueprint via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err) };
     }
@@ -508,7 +518,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
       if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement get_blueprint_scs' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'GET_SCS_FAILED', message: pluginResp?.message ?? 'Failed to get SCS via automation bridge' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'GET_SCS_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to get SCS via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
@@ -566,7 +576,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
       if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement add_scs_component' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'ADD_SCS_COMPONENT_FAILED', message: pluginResp?.message ?? 'Failed to add SCS component via automation bridge' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'ADD_SCS_COMPONENT_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to add SCS component via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
@@ -597,7 +607,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
       if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement remove_scs_component' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'REMOVE_SCS_COMPONENT_FAILED', message: pluginResp?.message ?? 'Failed to remove SCS component via automation bridge' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'REMOVE_SCS_COMPONENT_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to remove SCS component via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
@@ -637,7 +647,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
       if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement reparent_scs_component' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'REPARENT_SCS_COMPONENT_FAILED', message: pluginResp?.message ?? 'Failed to reparent SCS component via automation bridge' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'REPARENT_SCS_COMPONENT_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to reparent SCS component via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
@@ -682,7 +692,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
       if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement set_scs_component_transform' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'SET_SCS_TRANSFORM_FAILED', message: pluginResp?.message ?? 'Failed to set SCS component transform via automation bridge' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'SET_SCS_TRANSFORM_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to set SCS component transform via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
@@ -731,7 +741,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
       if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement set_scs_component_property' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'SET_SCS_PROPERTY_FAILED', message: pluginResp?.message ?? 'Failed to set SCS component property via automation bridge' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'SET_SCS_PROPERTY_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to set SCS component property via automation bridge' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
@@ -764,7 +774,7 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
       if (pluginResp && this.isUnknownActionResponse(pluginResp)) {
         return { success: false, error: 'UNKNOWN_PLUGIN_ACTION', message: 'Automation plugin does not implement get_nodes' } as const;
       }
-      return { success: false, error: pluginResp?.error ?? 'GET_NODES_FAILED', message: pluginResp?.message ?? 'Failed to get blueprint nodes' } as const;
+      return { success: false, error: typeof pluginResp?.error === 'string' ? pluginResp.error : 'GET_NODES_FAILED', message: typeof pluginResp?.message === 'string' ? pluginResp.message : 'Failed to get blueprint nodes' } as const;
     } catch (err: unknown) {
       return { success: false, error: String(err), message: String(err) } as const;
     }
