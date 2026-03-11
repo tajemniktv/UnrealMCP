@@ -665,10 +665,10 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
       }
 
       const content = fs.readFileSync(logPath, 'utf8');
-      let lines = content.split(/\r?\n/);
-      if (filter) {
-        lines = lines.filter((line) => line.toLowerCase().includes(filter));
-      }
+      const allLines = content.split(/\r?\n/);
+      const lines = filter
+        ? allLines.filter((line) => line.toLowerCase().includes(filter))
+        : allLines;
       const tail = lines.slice(Math.max(0, lines.length - maxLines));
       return cleanObject({
         success: true,
@@ -698,7 +698,7 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
 
       const keywords = ['shader', 'material', 'nanite', 'lumen', 'render', 'diffuseindirect'];
       const content = fs.readFileSync(logPath, 'utf8');
-      let lines = content.split(/\r?\n/).filter((line) => {
+      const lines = content.split(/\r?\n/).filter((line) => {
         const lower = line.toLowerCase();
         const keywordMatch = keywords.some((keyword) => lower.includes(keyword));
         const contextualMatch = !contextualFilter || lower.includes(contextualFilter);

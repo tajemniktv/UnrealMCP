@@ -165,6 +165,16 @@ describe('ensureVector3', () => {
         expect(result).toEqual([1, 2, 3]);
     });
 
+    it('accepts object format with uppercase X, Y, Z', () => {
+        const result = ensureVector3({ X: 1, Y: 2, Z: 3 }, 'location');
+        expect(result).toEqual([1, 2, 3]);
+    });
+
+    it('accepts object format with string values coercible to numbers', () => {
+        const result = ensureVector3({ x: '1', y: '2.5', z: '-3' }, 'location');
+        expect(result).toEqual([1, 2.5, -3]);
+    });
+
     it('accepts array format', () => {
         const result = ensureVector3([1, 2, 3], 'location');
         expect(result).toEqual([1, 2, 3]);
@@ -178,8 +188,26 @@ describe('ensureVector3', () => {
         expect(() => ensureVector3([1, 2], 'location')).toThrow();
     });
 
-    it('throws on non-number values', () => {
+    it('throws on non-number values in object', () => {
         expect(() => ensureVector3({ x: 'a', y: 2, z: 3 }, 'location')).toThrow();
+    });
+
+    it('throws on string values in array', () => {
+        expect(() => ensureVector3(['1', 2, 3], 'location')).toThrow();
+    });
+
+    it('throws on non-finite values in object', () => {
+        expect(() => ensureVector3({ x: NaN, y: 2, z: 3 }, 'location')).toThrow();
+        expect(() => ensureVector3({ x: Infinity, y: 2, z: 3 }, 'location')).toThrow();
+    });
+
+    it('throws on null or undefined input', () => {
+        expect(() => ensureVector3(null, 'location')).toThrow();
+        expect(() => ensureVector3(undefined, 'location')).toThrow();
+    });
+
+    it('throws with provided label in error message', () => {
+        expect(() => ensureVector3({ x: 1 }, 'MyCustomLabel')).toThrowError(/Invalid MyCustomLabel: expected/);
     });
 });
 
