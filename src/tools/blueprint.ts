@@ -257,8 +257,8 @@ export class BlueprintTools extends BaseTool implements IBlueprintTools {
             }
             return {
               success: false,
-              error: resp.error ?? 'BLUEPRINT_CHECK_FAILED',
-              message: resp.message ?? 'Failed to verify blueprint existence'
+              error: typeof resp.error === 'string' ? resp.error : 'BLUEPRINT_CHECK_FAILED',
+              message: typeof resp.message === 'string' ? resp.message : 'Failed to verify blueprint existence'
             };
           }
         } catch (_err) {
