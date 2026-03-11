@@ -304,25 +304,29 @@ export class AnimationTools {
             });
 
             // Add states if provided
-            for (const state of normalizedStates) {
-              await this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
-                subAction: 'add_state',
-                blueprintPath,
-                stateMachineName: machineName,
-                stateName: state.name
-              }), { timeoutMs: 30000 });
+            if (normalizedStates.length > 0) {
+              await Promise.all(normalizedStates.map(state =>
+                this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
+                  subAction: 'add_state',
+                  blueprintPath,
+                  stateMachineName: machineName,
+                  stateName: state.name
+                }), { timeoutMs: 30000 })
+              ));
             }
 
             // Add transitions if provided
-            for (const transition of normalizedTransitions) {
-              await this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
-                subAction: 'add_transition',
-                blueprintPath,
-                stateMachineName: machineName,
-                fromState: transition.sourceState,
-                toState: transition.targetState,
-                crossfadeDuration: 0.2
-              }), { timeoutMs: 30000 });
+            if (normalizedTransitions.length > 0) {
+              await Promise.all(normalizedTransitions.map(transition =>
+                this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
+                  subAction: 'add_transition',
+                  blueprintPath,
+                  stateMachineName: machineName,
+                  fromState: transition.sourceState,
+                  toState: transition.targetState,
+                  crossfadeDuration: 0.2
+                }), { timeoutMs: 30000 })
+              ));
             }
 
             return {
