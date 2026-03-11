@@ -66,13 +66,41 @@ describe('toString', () => {
 describe('toVec3Array', () => {
   it('should return undefined for invalid input', () => {
     expect(toVec3Array(undefined)).toBeUndefined();
-    expect(toVec3Array(null)).toBeUndefined();
-    expect(toVec3Array({})).toBeUndefined();
+    expect(toVec3Array(null as any)).toBeUndefined();
+    expect(toVec3Array('invalid' as any)).toBeUndefined();
+    expect(toVec3Array(123 as any)).toBeUndefined();
+    expect(toVec3Array(true as any)).toBeUndefined();
   });
 
-  it('should convert Vector3 to array', () => {
+  it('should return undefined for missing properties', () => {
+    expect(toVec3Array({} as any)).toBeUndefined();
+    expect(toVec3Array({ x: 1 } as any)).toBeUndefined();
+    expect(toVec3Array({ x: 1, y: 2 } as any)).toBeUndefined();
+    expect(toVec3Array({ y: 2, z: 3 } as any)).toBeUndefined();
+  });
+
+  it('should return undefined for non-finite values', () => {
+    expect(toVec3Array({ x: Infinity, y: 2, z: 3 })).toBeUndefined();
+    expect(toVec3Array({ x: 1, y: -Infinity, z: 3 })).toBeUndefined();
+    expect(toVec3Array({ x: 1, y: 2, z: NaN })).toBeUndefined();
+  });
+
+  it('should return undefined for unparseable strings', () => {
+    expect(toVec3Array({ x: 'abc', y: 2, z: 3 } as any)).toBeUndefined();
+    expect(toVec3Array({ x: 1, y: 'def', z: 3 } as any)).toBeUndefined();
+    expect(toVec3Array({ x: 1, y: 2, z: 'ghi' } as any)).toBeUndefined();
+  });
+
+  it('should convert valid Vector3 object to array', () => {
     expect(toVec3Array({ x: 1, y: 2, z: 3 })).toEqual([1, 2, 3]);
     expect(toVec3Array({ x: 0, y: 0, z: 0 })).toEqual([0, 0, 0]);
+    expect(toVec3Array({ x: -1.5, y: 2.5, z: -3.14 })).toEqual([-1.5, 2.5, -3.14]);
+  });
+
+  it('should coerce string values to numbers', () => {
+    expect(toVec3Array({ x: '1', y: '2', z: '3' } as any)).toEqual([1, 2, 3]);
+    expect(toVec3Array({ x: '-1.5', y: '2.5', z: '3.14' } as any)).toEqual([-1.5, 2.5, 3.14]);
+    expect(toVec3Array({ x: 1, y: '2', z: 3 } as any)).toEqual([1, 2, 3]);
   });
 });
 
