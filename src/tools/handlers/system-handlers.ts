@@ -3,6 +3,7 @@ import { ITools } from '../../types/tool-interfaces.js';
 import type { HandlerArgs, SystemArgs } from '../../types/handler-types.js';
 import { executeAutomationRequest } from './common-handlers.js';
 import fs from 'node:fs';
+import path from 'node:path';
 import { getCandidateLogFiles } from './modding-utils.js';
 
 /** Response from various operations */
@@ -652,6 +653,32 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
       const requestedPath = typeof argsRecord.logPath === 'string' ? argsRecord.logPath.trim() : '';
       const filter = typeof argsRecord.filter === 'string' ? argsRecord.filter.trim().toLowerCase() : '';
       const maxLines = typeof argsRecord.maxLines === 'number' ? argsRecord.maxLines as number : 200;
+
+      // Security check for requestedPath
+      if (requestedPath) {
+        if (!requestedPath.toLowerCase().endsWith('.log')) {
+          return {
+            success: false,
+            error: 'INVALID_ARGUMENT',
+            message: 'Only .log files can be read',
+            action: 'tail_logs'
+          };
+        }
+
+        const resolvedRequested = path.resolve(requestedPath);
+        const allowedDirs = getCandidateLogFiles(process.cwd()).map(d => path.dirname(path.resolve(d)));
+        const isAllowed = allowedDirs.some(dir => resolvedRequested.startsWith(dir + path.sep) || path.dirname(resolvedRequested) === dir);
+
+        if (!isAllowed) {
+          return {
+            success: false,
+            error: 'UNAUTHORIZED_ACCESS',
+            message: 'Access to the specified log path is not allowed',
+            action: 'tail_logs'
+          };
+        }
+      }
+
       const candidatePaths = requestedPath ? [requestedPath] : getCandidateLogFiles(process.cwd());
       const logPath = candidatePaths.find((candidate) => fs.existsSync(candidate));
 
