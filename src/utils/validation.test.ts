@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     normalizeMountedAssetPath,
+    sanitizeCommandArgument,
     sanitizeAssetName,
     sanitizePath,
     validatePathLength,
@@ -59,6 +60,48 @@ describe('normalizeMountedAssetPath', () => {
         // Consecutive underscores are replaced with a single _
         // Trailing underscores are stripped.
         expect(normalizeMountedAssetPath('/Game!/@Asset#/Test$')).toBe('/Game/Asset/Test');
+describe('sanitizeCommandArgument', () => {
+    it('returns empty string for falsy and non-string values', () => {
+        expect(sanitizeCommandArgument(null as unknown as string)).toBe('');
+        expect(sanitizeCommandArgument(undefined as unknown as string)).toBe('');
+        expect(sanitizeCommandArgument(123 as unknown as string)).toBe('');
+        expect(sanitizeCommandArgument({} as unknown as string)).toBe('');
+        expect(sanitizeCommandArgument('')).toBe('');
+    });
+
+    it('trims leading and trailing whitespace', () => {
+        expect(sanitizeCommandArgument('  Command  ')).toBe('Command');
+        expect(sanitizeCommandArgument('\tCommand\t')).toBe('Command');
+    });
+
+    it('removes null bytes and control characters', () => {
+        expect(sanitizeCommandArgument('Com\x00mand')).toBe('Command');
+        expect(sanitizeCommandArgument('Com\x08mand')).toBe('Command');
+        expect(sanitizeCommandArgument('Com\x1Bmand')).toBe('Command');
+        expect(sanitizeCommandArgument('Com\x7Fmand')).toBe('Command');
+    });
+
+    it('replaces semicolons with underscores', () => {
+        expect(sanitizeCommandArgument('MyLevel;Quit')).toBe('MyLevel_Quit');
+        expect(sanitizeCommandArgument('Command1; Command2; Command3')).toBe('Command1_ Command2_ Command3');
+    });
+
+    it('escapes backslashes and quotes', () => {
+        expect(sanitizeCommandArgument('Path\\To\\File')).toBe('Path\\\\To\\\\File');
+        expect(sanitizeCommandArgument('Say "Hello"')).toBe('Say \\"Hello\\"');
+    });
+
+    it('removes newlines and carriage returns', () => {
+        // Note: newlines (\n) and carriage returns (\r) are control characters
+        // so they get completely removed by the /[\x00-\x1F\x7F]/g regex
+        // rather than being replaced with spaces.
+        expect(sanitizeCommandArgument('Command1\nCommand2')).toBe('Command1Command2');
+        expect(sanitizeCommandArgument('Command1\r\nCommand2')).toBe('Command1Command2');
+    });
+
+    it('handles complex inputs with multiple security concerns', () => {
+        const maliciousInput = '  \x00MyLevel; \n Say "Gotcha" \\ \r\n Quit;  ';
+        expect(sanitizeCommandArgument(maliciousInput)).toBe('MyLevel_  Say \\"Gotcha\\" \\\\  Quit_');
     });
 });
 
