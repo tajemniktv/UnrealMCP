@@ -1,38 +1,18 @@
-# src/tools
+# src/tools Instructions
 
-MCP tool implementations: 36 consolidated tools with action-based dispatch to native C++ handlers.
+Canonical repository guidance lives in [`../../AGENTS.md`](../../AGENTS.md).
 
-## OVERVIEW
-Consolidated tool architecture using action-based dispatch to native C++ handlers. Single 212KB schema file defines all tools.
+Use this directory-level file only for local navigation:
 
-## STRUCTURE
-```
-tools/
-├── consolidated-tool-definitions.ts  # All action enums + schemas (212KB)
-├── consolidated-tool-handlers.ts     # Tool routing via toolRegistry
-└── handlers/                         # Domain handlers (42 files)
-```
+- Tool schemas and action enums live in `consolidated-tool-definitions.ts`.
+- Tool registration lives in `consolidated-tool-handlers.ts`.
+- Domain implementations live in `handlers/`.
 
-## WHERE TO LOOK
-| Task | File | Notes |
-|------|------|-------|
-| Add new tool | `consolidated-tool-definitions.ts` | Add JSON schema with action enum |
-| Add TS handler | `consolidated-tool-handlers.ts` | Register in `registerDefaultHandlers()` |
-| Implement logic | `handlers/*-handlers.ts` | 42 domain handler files |
-| Common utils | `handlers/common-handlers.ts` | `requireAction()`, `executeAutomationRequest()` |
+When adding or changing a tool:
 
-## CONVENTIONS
-- **Consolidated Pattern**: Tools grouped by domain; switch on `args.action`.
-- **Registry Dispatch**: Use `toolRegistry.register()` in `consolidated-tool-handlers.ts`.
-- **C++ Requirement**: Every TS action must have corresponding C++ handler in plugin.
-- **Error Context**: Add tool/action names to all error messages.
+1. Update the action enum and schemas in `consolidated-tool-definitions.ts`.
+2. Register or route the tool in `consolidated-tool-handlers.ts`.
+3. Implement the domain behavior in `handlers/*-handlers.ts`.
+4. Ensure the Unreal plugin has the corresponding native action.
 
-## ANTI-PATTERNS
-- **Bypassing Registry**: Never call domain handler functions directly.
-- **Manual WS Calls**: Use `executeAutomationRequest()` instead of raw WebSocket.
-- **Stubbed Actions**: No placeholders; 100% TS + C++ coverage required.
-- **Normalization**: Ensure paths are sanitized before sending to bridge.
-
-## NOTES
-- **handlers/ subdirectory**: See `handlers/AGENTS.md` for detailed handler documentation.
-- **Non-standard layout**: Handlers nested 2 levels deep (`src/tools/handlers/`).
+For handler-specific conventions, read [`handlers/AGENTS.md`](./handlers/AGENTS.md).

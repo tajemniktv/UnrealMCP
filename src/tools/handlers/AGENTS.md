@@ -1,87 +1,36 @@
-# src/tools/handlers
+# src/tools/handlers Instructions
 
-Domain-specific tool handler implementations (42 files).
+Canonical repository guidance lives in [`../../../AGENTS.md`](../../../AGENTS.md).
 
-## OVERVIEW
-Handler functions for each MCP tool domain. Call `executeAutomationRequest()` to dispatch to C++ bridge.
+This directory contains domain-specific tool handlers. These files translate validated MCP tool input into bridge requests.
 
-## STRUCTURE
-```
-handlers/
-├── actor-handlers.ts        # control_actor actions
-├── asset-handlers.ts        # manage_asset actions
-├── blueprint-handlers.ts    # manage_blueprint actions
-├── level-handlers.ts        # manage_level actions
-├── editor-handlers.ts       # control_editor actions
-├── lighting-handlers.ts     # manage_lighting actions
-├── animation-handlers.ts    # animation_physics actions
-├── effect-handlers.ts       # manage_effect actions
-├── sequence-handlers.ts     # manage_sequence actions
-├── geometry-handlers.ts     # manage_geometry actions
-├── spline-handlers.ts       # manage_splines actions
-├── navigation-handlers.ts   # manage_navigation actions
-├── audio-handlers.ts        # manage_audio actions
-├── gas-handlers.ts          # manage_gas actions
-├── combat-handlers.ts       # manage_combat actions
-├── ai-handlers.ts           # manage_ai actions
-├── character-handlers.ts    # manage_character actions
-├── inventory-handlers.ts    # manage_inventory actions
-├── interaction-handlers.ts  # manage_interaction actions
-├── network-handlers.ts      # manage_networking actions
-├── session-handlers.ts      # manage_sessions actions
-├── gameplay-handlers.ts     # manage_game_framework actions
-├── behavior-tree-handlers.ts # manage_behavior_tree actions
-├── input-handlers.ts        # manage_input actions
-├── skeleton-handlers.ts     # manage_skeleton actions
-├── material-handlers.ts     # manage_material_authoring actions
-├── texture-handlers.ts      # manage_texture actions
-├── widget-handlers.ts       # manage_widget_authoring actions
-├── volume-handlers.ts       # manage_volumes actions
-├── level-structure-handlers.ts # manage_level_structure actions
-├── environment-handlers.ts  # build_environment actions
-├── inspect-handlers.ts      # inspect actions
-├── system-handlers.ts       # system_control actions
-├── performance-handlers.ts  # manage_performance actions
-├── common-handlers.ts       # executeAutomationRequest(), requireAction()
-└── ... (42 total files)
-```
+## Keep These Invariants
 
-## WHERE TO LOOK
-| Task | File | Notes |
-|------|------|-------|
-| Add action handler | `*-handlers.ts` | Match domain to file name |
-| Common utilities | `common-handlers.ts` | `executeAutomationRequest()`, `requireAction()` |
-| Error formatting | `common-handlers.ts` | `formatToolError()` |
-| Response parsing | `common-handlers.ts` | `parseAutomationResponse()` |
+- Always dispatch through `executeAutomationRequest()` in `common-handlers.ts`.
+- Do not call the WebSocket bridge directly from domain handlers.
+- Do not add TS-only actions without matching Unreal-side support.
+- Include tool and action context in thrown errors.
+- Normalize or sanitize paths before sending them to the bridge.
 
-## CONVENTIONS
-- **Action Dispatch**: Switch on `args.action` in handler function
-- **Bridge Call**: Always use `executeAutomationRequest(action, params)` — never raw WebSocket
-- **Error Context**: Include tool/action names in all error messages
-- **Path Normalization**: Call `normalizePath()` before sending to bridge
+## Where To Change Things
 
-### Handler Pattern
-```typescript
-export async function handleFoo(args: unknown): Promise<ToolResponse> {
-  const action = requireAction(args);
-  switch (action) {
-    case 'bar': {
-      // Validate params, normalize paths
-      return executeAutomationRequest('foo_bar', params);
-    }
-    // ... more actions
-  }
-}
-```
+- Shared utilities: `common-handlers.ts`
+- Tool routing: `../consolidated-tool-handlers.ts`
+- Tool schemas: `../consolidated-tool-definitions.ts`
+- Domain handlers: `*-handlers.ts`
 
-## ANTI-PATTERNS
-- **Direct WebSocket**: Never use `bridge.send()` — use `executeAutomationRequest()`
-- **Bypassing Registry**: Never call handler functions directly — use `toolRegistry.register()`
-- **Raw Params**: Always validate/normalize before bridge call
-- **Missing Error Context**: All errors must include tool/action name
-- **Stubbed Actions**: No "Not Implemented" — full TS + C++ coverage required
+## Expected Handler Shape
 
-## NOTES
-- **Non-Standard Location**: Handlers nested 2 levels deep (`src/tools/handlers/`)
-- **C++ Requirement**: Every TS action must have corresponding C++ handler in plugin
-- **Registry Pattern**: All handlers registered in `consolidated-tool-handlers.ts`
+- Parse or narrow `args`
+- Resolve `action`
+- Validate action-specific inputs
+- Normalize paths or names where needed
+- Call `executeAutomationRequest()`
+- Return the bridge response without bypassing shared parsing/error helpers
+
+## High-Risk Mistakes
+
+- Sending raw bridge messages instead of using shared helpers
+- Skipping normalization for asset or package paths
+- Adding placeholder branches like `"not implemented"`
+- Letting TS action names drift from Unreal handler names

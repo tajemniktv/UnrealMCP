@@ -2,11 +2,18 @@
 #include "McpAutomationBridgeGlobals.h"
 #include "McpAutomationBridgeHelpers.h"
 #include "McpAutomationBridgeSubsystem.h"
+#include "Misc/App.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/PackageName.h"
+#include "HAL/PlatformMemory.h"
 
 #if WITH_EDITOR
 #include "Editor.h"
+#include "Components/MeshComponent.h"
+#include "Components/PrimitiveComponent.h"
+#include "Components/SceneComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "EditorAssetLibrary.h"
 #include "Slate/SceneViewport.h"
 #include "Framework/Application/SlateApplication.h"
@@ -34,6 +41,8 @@
 #include "Engine/Blueprint.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/SkyLight.h"
+#include "Engine/SkeletalMesh.h"
+#include "Engine/StaticMesh.h"
 #include "EngineUtils.h"
 #include "FileHelpers.h"
 #include "GeneralProjectSettings.h"
@@ -50,6 +59,164 @@
 #include "LandscapeGrassType.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 
+#endif
+
+#if WITH_EDITOR
+namespace {
+static FString GetRequestedWorldType(const TSharedPtr<FJsonObject>& Payload) {
+  FString RequestedWorldType = TEXT("auto");
+  if (Payload.IsValid()) {
+    Payload->TryGetStringField(TEXT("worldType"), RequestedWorldType);
+  }
+  return RequestedWorldType;
+}
+
+static FString GetComponentMeshPath(UActorComponent* Component) {
+  if (UStaticMeshComponent* StaticMeshComp = Cast<UStaticMeshComponent>(Component)) {
+    if (UStaticMesh* StaticMesh = StaticMeshComp->GetStaticMesh()) {
+      return StaticMesh->GetPathName();
+    }
+  }
+
+  if (USkeletalMeshComponent* SkeletalMeshComp = Cast<USkeletalMeshComponent>(Component)) {
+    if (USkeletalMesh* SkeletalMesh = SkeletalMeshComp->GetSkeletalMeshAsset()) {
+      return SkeletalMesh->GetPathName();
+    }
+  }
+
+  return FString();
+}
+
+static bool ComponentUsesFallbackMaterial(UMeshComponent* MeshComponent) {
+  if (!MeshComponent) {
+    return false;
+  }
+
+  for (int32 Index = 0; Index < MeshComponent->GetNumMaterials(); ++Index) {
+    UMaterialInterface* Material = MeshComponent->GetMaterial(Index);
+    if (!Material) {
+      continue;
+    }
+
+    const FString MaterialPath = Material->GetPathName();
+    if (MaterialPath.Contains(TEXT("DefaultMaterial")) || MaterialPath.Contains(TEXT("/Engine/EngineMaterials/"))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static TSharedPtr<FJsonObject> BuildComponentRenderStateObject(UActorComponent* Component, const FString& ActualWorldType, const FString& RequestedWorldType) {
+  TSharedPtr<FJsonObject> ComponentObj = MakeShared<FJsonObject>();
+  if (!Component) {
+    ComponentObj->SetBoolField(TEXT("success"), false);
+    ComponentObj->SetStringField(TEXT("error"), TEXT("COMPONENT_NOT_FOUND"));
+    return ComponentObj;
+  }
+
+  AActor* Owner = Component->GetOwner();
+  ComponentObj->SetBoolField(TEXT("success"), true);
+  ComponentObj->SetStringField(TEXT("componentName"), Component->GetName());
+  ComponentObj->SetStringField(TEXT("componentPath"), Component->GetPathName());
+  ComponentObj->SetStringField(TEXT("componentClass"), Component->GetClass()->GetName());
+  ComponentObj->SetStringField(TEXT("requestedWorldType"), RequestedWorldType);
+  ComponentObj->SetStringField(TEXT("actualWorldType"), ActualWorldType);
+  ComponentObj->SetStringField(TEXT("actorName"), Owner ? Owner->GetActorLabel() : TEXT(""));
+  ComponentObj->SetStringField(TEXT("actorPath"), Owner ? Owner->GetPathName() : TEXT(""));
+
+  if (USceneComponent* SceneComponent = Cast<USceneComponent>(Component)) {
+    ComponentObj->SetStringField(TEXT("mobility"), StaticEnum<EComponentMobility::Type>()->GetNameStringByValue(SceneComponent->Mobility));
+  }
+
+  if (UPrimitiveComponent* PrimitiveComponent = Cast<UPrimitiveComponent>(Component)) {
+    ComponentObj->SetBoolField(TEXT("visible"), PrimitiveComponent->IsVisible());
+  }
+
+  FString CurrentMeshPath = GetComponentMeshPath(Component);
+  if (!CurrentMeshPath.IsEmpty()) {
+    ComponentObj->SetStringField(TEXT("currentMesh"), CurrentMeshPath);
+  }
+
+  if (UMeshComponent* MeshComponent = Cast<UMeshComponent>(Component)) {
+    TArray<TSharedPtr<FJsonValue>> MaterialArray;
+    for (int32 Index = 0; Index < MeshComponent->GetNumMaterials(); ++Index) {
+      UMaterialInterface* Material = MeshComponent->GetMaterial(Index);
+      TSharedPtr<FJsonObject> MaterialObj = MakeShared<FJsonObject>();
+      MaterialObj->SetNumberField(TEXT("index"), Index);
+      MaterialObj->SetStringField(TEXT("path"), Material ? Material->GetPathName() : TEXT(""));
+      MaterialObj->SetStringField(TEXT("name"), Material ? Material->GetName() : TEXT(""));
+      MaterialArray.Add(MakeShared<FJsonValueObject>(MaterialObj));
+    }
+    ComponentObj->SetArrayField(TEXT("currentMaterials"), MaterialArray);
+    ComponentObj->SetBoolField(TEXT("fallbackMaterialDetected"), ComponentUsesFallbackMaterial(MeshComponent));
+  } else {
+    ComponentObj->SetBoolField(TEXT("fallbackMaterialDetected"), false);
+  }
+
+  return ComponentObj;
+}
+
+static UActorComponent* ResolveComponentFromPayload(const TSharedPtr<FJsonObject>& Payload, UWorld* TargetWorld) {
+  FString ComponentPath;
+  FString ActorName;
+  FString ComponentName;
+  if (Payload.IsValid()) {
+    Payload->TryGetStringField(TEXT("componentPath"), ComponentPath);
+    if (ComponentPath.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("objectPath"), ComponentPath);
+    }
+    Payload->TryGetStringField(TEXT("actorName"), ActorName);
+    Payload->TryGetStringField(TEXT("componentName"), ComponentName);
+  }
+
+  if (!ComponentPath.IsEmpty()) {
+    if (UObject* Object = ResolveObjectFromPath(ComponentPath)) {
+      if (UActorComponent* Component = Cast<UActorComponent>(Object)) {
+        return Component;
+      }
+    }
+
+    if (ComponentPath.Contains(TEXT("."))) {
+      const FString ActorSegment = ComponentPath.Left(ComponentPath.Find(TEXT(".")));
+      const FString ComponentSegment = ComponentPath.RightChop(ActorSegment.Len() + 1);
+      if (AActor* Actor = FindActorByName(ActorSegment)) {
+        if (UActorComponent* Component = FindComponentByName(Actor, ComponentSegment)) {
+          return Component;
+        }
+      }
+    }
+  }
+
+  if (!ActorName.IsEmpty() && !ComponentName.IsEmpty()) {
+    if (AActor* Actor = FindActorByName(ActorName)) {
+      if (UActorComponent* Component = FindComponentByName(Actor, ComponentName)) {
+        return Component;
+      }
+    }
+  }
+
+  if (!TargetWorld) {
+    return nullptr;
+  }
+
+  if (!ActorName.IsEmpty() && ComponentName.IsEmpty()) {
+    for (TActorIterator<AActor> It(TargetWorld); It; ++It) {
+      AActor* Actor = *It;
+      if (!Actor) {
+        continue;
+      }
+      if (Actor->GetActorLabel().Equals(ActorName, ESearchCase::IgnoreCase) || Actor->GetName().Equals(ActorName, ESearchCase::IgnoreCase)) {
+        TInlineComponentArray<UActorComponent*> Components;
+        Actor->GetComponents(Components);
+        return Components.Num() > 0 ? Components[0] : nullptr;
+      }
+    }
+  }
+
+  return nullptr;
+}
+}
 #endif
 
 bool UMcpAutomationBridgeSubsystem::HandleBuildEnvironmentAction(
@@ -1025,7 +1192,9 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     LowerSubAction.Equals(TEXT("list_objects")) ||
     LowerSubAction.Equals(TEXT("find_by_class")) ||
     LowerSubAction.Equals(TEXT("find_by_tag")) ||
-    LowerSubAction.Equals(TEXT("inspect_class"));
+    LowerSubAction.Equals(TEXT("inspect_class")) ||
+    LowerSubAction.Equals(TEXT("find_components_by_mesh")) ||
+    LowerSubAction.Equals(TEXT("find_components_by_material"));
 
   // Actions that require actorName instead of objectPath
   const bool bIsActorAction = 
@@ -1038,7 +1207,8 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     LowerSubAction.Equals(TEXT("restore_snapshot")) ||
     LowerSubAction.Equals(TEXT("export")) ||
     LowerSubAction.Equals(TEXT("delete_object")) ||
-    LowerSubAction.Equals(TEXT("get_bounding_box"));
+    LowerSubAction.Equals(TEXT("get_bounding_box")) ||
+    LowerSubAction.Equals(TEXT("get_actor_render_summary"));
 
   // Delegate actor-related actions to the control_actor handler
   if (bIsActorAction) {
@@ -1067,6 +1237,85 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
   }
   if (LowerSubAction.Equals(TEXT("rename_mod_config_section"))) {
     return HandleRenameModConfigSection(RequestId, Payload, RequestingSocket);
+  }
+
+  if (LowerSubAction.Equals(TEXT("get_component_render_state"))) {
+    TSharedPtr<FJsonObject> Resp = MakeShared<FJsonObject>();
+    const FString RequestedWorldType = GetRequestedWorldType(Payload);
+    FString ActualWorldType;
+    UWorld* TargetWorld = ResolveInspectionWorld(Payload, &ActualWorldType);
+    UActorComponent* Component = ResolveComponentFromPayload(Payload, TargetWorld);
+    if (!Component) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Unable to resolve component for render-state inspection"),
+                          TEXT("COMPONENT_NOT_FOUND"));
+      return true;
+    }
+
+    Resp = BuildComponentRenderStateObject(Component, ActualWorldType, RequestedWorldType);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Component render state retrieved"), Resp, FString());
+    return true;
+  }
+
+  if (LowerSubAction.Equals(TEXT("get_actor_render_summary"))) {
+    FString ActorName;
+    Payload->TryGetStringField(TEXT("actorName"), ActorName);
+    if (ActorName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("objectPath"), ActorName);
+    }
+    if (ActorName.IsEmpty()) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("actorName is required for get_actor_render_summary"),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    const FString RequestedWorldType = GetRequestedWorldType(Payload);
+    FString ActualWorldType;
+    UWorld* TargetWorld = ResolveInspectionWorld(Payload, &ActualWorldType);
+    AActor* Actor = FindActorByName(ActorName);
+    if (!Actor && TargetWorld) {
+      for (TActorIterator<AActor> It(TargetWorld); It; ++It) {
+        if (AActor* Candidate = *It) {
+          if (Candidate->GetPathName().Equals(ActorName, ESearchCase::IgnoreCase) ||
+              Candidate->GetActorLabel().Equals(ActorName, ESearchCase::IgnoreCase) ||
+              Candidate->GetName().Equals(ActorName, ESearchCase::IgnoreCase)) {
+            Actor = Candidate;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!Actor) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          FString::Printf(TEXT("Actor not found: %s"), *ActorName),
+                          TEXT("ACTOR_NOT_FOUND"));
+      return true;
+    }
+
+    TSharedPtr<FJsonObject> Resp = MakeShared<FJsonObject>();
+    TArray<TSharedPtr<FJsonValue>> RenderComponents;
+    TInlineComponentArray<UActorComponent*> Components;
+    Actor->GetComponents(Components);
+    for (UActorComponent* Component : Components) {
+      if (Cast<UMeshComponent>(Component) || Cast<UPrimitiveComponent>(Component)) {
+        RenderComponents.Add(MakeShared<FJsonValueObject>(BuildComponentRenderStateObject(Component, ActualWorldType, RequestedWorldType)));
+      }
+    }
+
+    Resp->SetBoolField(TEXT("success"), true);
+    Resp->SetStringField(TEXT("actorName"), Actor->GetActorLabel());
+    Resp->SetStringField(TEXT("actorPath"), Actor->GetPathName());
+    Resp->SetStringField(TEXT("requestedWorldType"), RequestedWorldType);
+    Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
+    Resp->SetNumberField(TEXT("componentCount"), Components.Num());
+    Resp->SetNumberField(TEXT("renderComponentCount"), RenderComponents.Num());
+    Resp->SetArrayField(TEXT("components"), RenderComponents);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Actor render summary retrieved"), Resp, FString());
+    return true;
   }
 
   // Only require objectPath for non-global actions
@@ -1124,10 +1373,22 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("get_world_settings"))) {
-      if (GEditor && GEditor->GetEditorWorldContext().World()) {
-        UWorld* World = GEditor->GetEditorWorldContext().World();
+      const FString RequestedWorldType = GetRequestedWorldType(Payload);
+      FString ActualWorldType;
+      UWorld* World = ResolveInspectionWorld(Payload, &ActualWorldType);
+      if (World) {
         Resp->SetStringField(TEXT("worldName"), World->GetName());
-        Resp->SetStringField(TEXT("levelName"), World->GetCurrentLevel()->GetName());
+        Resp->SetStringField(TEXT("worldPath"), World->GetPathName());
+        Resp->SetStringField(TEXT("requestedWorldType"), RequestedWorldType);
+        Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
+        if (World->GetCurrentLevel()) {
+          Resp->SetStringField(TEXT("levelName"), World->GetCurrentLevel()->GetName());
+          Resp->SetStringField(TEXT("levelPath"), World->GetCurrentLevel()->GetPathName());
+        }
+        Resp->SetStringField(TEXT("mapName"), World->GetMapName());
+        Resp->SetBoolField(TEXT("isGameWorld"), World->IsGameWorld());
+        Resp->SetBoolField(TEXT("hasBegunPlay"), World->HasBegunPlay());
+        Resp->SetNumberField(TEXT("streamingLevelCount"), World->GetStreamingLevels().Num());
         Resp->SetBoolField(TEXT("success"), true);
         SendAutomationResponse(RequestingSocket, RequestId, true,
                                TEXT("World settings retrieved"), Resp, FString());
@@ -1139,15 +1400,26 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("get_viewport_info"))) {
+      const FString RequestedWorldType = GetRequestedWorldType(Payload);
+      FString ActualWorldType;
+      ResolveInspectionWorld(Payload, &ActualWorldType);
       if (GEditor && GEditor->GetActiveViewport()) {
         FViewport* Viewport = GEditor->GetActiveViewport();
         Resp->SetNumberField(TEXT("width"), Viewport->GetSizeXY().X);
         Resp->SetNumberField(TEXT("height"), Viewport->GetSizeXY().Y);
+        Resp->SetStringField(TEXT("requestedWorldType"), RequestedWorldType);
+        Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
+        Resp->SetBoolField(TEXT("pieActive"), GEditor->PlayWorld != nullptr);
+        Resp->SetBoolField(TEXT("hasActiveViewport"), true);
         Resp->SetBoolField(TEXT("success"), true);
         SendAutomationResponse(RequestingSocket, RequestId, true,
                                TEXT("Viewport info retrieved"), Resp, FString());
       } else {
         Resp->SetBoolField(TEXT("success"), true);
+        Resp->SetStringField(TEXT("requestedWorldType"), RequestedWorldType);
+        Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
+        Resp->SetBoolField(TEXT("pieActive"), GEditor && GEditor->PlayWorld != nullptr);
+        Resp->SetBoolField(TEXT("hasActiveViewport"), false);
         Resp->SetStringField(TEXT("message"), TEXT("Viewport info not available in this context"));
         SendAutomationResponse(RequestingSocket, RequestId, true,
                                TEXT("Viewport info retrieved"), Resp, FString());
@@ -1178,30 +1450,106 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     }
     else if (LowerSubAction.Equals(TEXT("get_scene_stats"))) {
       int32 ActorCount = 0;
-      if (GEditor && GEditor->GetEditorWorldContext().World()) {
-        UWorld* World = GEditor->GetEditorWorldContext().World();
+      int32 ComponentCount = 0;
+      FString ActualWorldType;
+      UWorld* World = ResolveInspectionWorld(Payload, &ActualWorldType);
+      if (World) {
         for (TActorIterator<AActor> It(World); It; ++It) {
           ActorCount++;
+          if (AActor* Actor = *It) {
+            TInlineComponentArray<UActorComponent*> Components;
+            Actor->GetComponents(Components);
+            ComponentCount += Components.Num();
+          }
         }
       }
       Resp->SetNumberField(TEXT("actorCount"), ActorCount);
+      Resp->SetNumberField(TEXT("componentCount"), ComponentCount);
+      Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
       Resp->SetBoolField(TEXT("success"), true);
       SendAutomationResponse(RequestingSocket, RequestId, true,
                              TEXT("Scene stats retrieved"), Resp, FString());
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("get_performance_stats"))) {
+      FString ActualWorldType;
+      UWorld* World = ResolveInspectionWorld(Payload, &ActualWorldType);
+      const float DeltaSeconds = FApp::GetDeltaTime();
       Resp->SetBoolField(TEXT("success"), true);
-      Resp->SetStringField(TEXT("message"), TEXT("Performance stats placeholder - implement with actual metrics"));
+      Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
+      Resp->SetStringField(TEXT("worldName"), World ? World->GetName() : TEXT(""));
+      Resp->SetNumberField(TEXT("deltaSeconds"), DeltaSeconds);
+      Resp->SetNumberField(TEXT("approximateFps"), DeltaSeconds > KINDA_SMALL_NUMBER ? (1.0 / static_cast<double>(DeltaSeconds)) : 0.0);
       SendAutomationResponse(RequestingSocket, RequestId, true,
                              TEXT("Performance stats retrieved"), Resp, FString());
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("get_memory_stats"))) {
+      const FPlatformMemoryStats MemoryStats = FPlatformMemory::GetStats();
       Resp->SetBoolField(TEXT("success"), true);
-      Resp->SetStringField(TEXT("message"), TEXT("Memory stats placeholder - implement with actual metrics"));
+      Resp->SetNumberField(TEXT("availablePhysicalMB"), static_cast<double>(MemoryStats.AvailablePhysical) / (1024.0 * 1024.0));
+      Resp->SetNumberField(TEXT("usedPhysicalMB"), static_cast<double>(MemoryStats.UsedPhysical) / (1024.0 * 1024.0));
+      Resp->SetNumberField(TEXT("peakUsedPhysicalMB"), static_cast<double>(MemoryStats.PeakUsedPhysical) / (1024.0 * 1024.0));
+      Resp->SetNumberField(TEXT("availableVirtualMB"), static_cast<double>(MemoryStats.AvailableVirtual) / (1024.0 * 1024.0));
+      Resp->SetNumberField(TEXT("usedVirtualMB"), static_cast<double>(MemoryStats.UsedVirtual) / (1024.0 * 1024.0));
       SendAutomationResponse(RequestingSocket, RequestId, true,
                              TEXT("Memory stats retrieved"), Resp, FString());
+      return true;
+    }
+    else if (LowerSubAction.Equals(TEXT("find_components_by_mesh")) ||
+             LowerSubAction.Equals(TEXT("find_components_by_material"))) {
+      const FString RequestedWorldType = GetRequestedWorldType(Payload);
+      FString ActualWorldType;
+      UWorld* TargetWorld = ResolveInspectionWorld(Payload, &ActualWorldType);
+      FString TargetPath;
+      Payload->TryGetStringField(LowerSubAction.Equals(TEXT("find_components_by_mesh")) ? TEXT("meshPath") : TEXT("materialPath"), TargetPath);
+      if (TargetPath.IsEmpty()) {
+        Payload->TryGetStringField(TEXT("objectPath"), TargetPath);
+      }
+      if (!TargetWorld || TargetPath.IsEmpty()) {
+        SendAutomationError(RequestingSocket, RequestId,
+                            TEXT("Target world or target path missing for component search"),
+                            TEXT("INVALID_ARGUMENT"));
+        return true;
+      }
+
+      TArray<TSharedPtr<FJsonValue>> Matches;
+      for (TActorIterator<AActor> It(TargetWorld); It; ++It) {
+        AActor* Actor = *It;
+        if (!Actor) {
+          continue;
+        }
+
+        TInlineComponentArray<UActorComponent*> Components;
+        Actor->GetComponents(Components);
+        for (UActorComponent* Component : Components) {
+          bool bMatched = false;
+          if (LowerSubAction.Equals(TEXT("find_components_by_mesh"))) {
+            bMatched = GetComponentMeshPath(Component).Equals(TargetPath, ESearchCase::IgnoreCase);
+          } else if (UMeshComponent* MeshComponent = Cast<UMeshComponent>(Component)) {
+            for (int32 Index = 0; Index < MeshComponent->GetNumMaterials(); ++Index) {
+              UMaterialInterface* Material = MeshComponent->GetMaterial(Index);
+              if (Material && Material->GetPathName().Equals(TargetPath, ESearchCase::IgnoreCase)) {
+                bMatched = true;
+                break;
+              }
+            }
+          }
+
+          if (bMatched) {
+            Matches.Add(MakeShared<FJsonValueObject>(BuildComponentRenderStateObject(Component, ActualWorldType, RequestedWorldType)));
+          }
+        }
+      }
+
+      Resp->SetBoolField(TEXT("success"), true);
+      Resp->SetStringField(TEXT("requestedWorldType"), RequestedWorldType);
+      Resp->SetStringField(TEXT("actualWorldType"), ActualWorldType);
+      Resp->SetStringField(TEXT("targetPath"), TargetPath);
+      Resp->SetNumberField(TEXT("count"), Matches.Num());
+      Resp->SetArrayField(TEXT("components"), Matches);
+      SendAutomationResponse(RequestingSocket, RequestId, true,
+                             TEXT("Component search completed"), Resp, FString());
       return true;
     }
     else if (LowerSubAction.Equals(TEXT("list_objects"))) {

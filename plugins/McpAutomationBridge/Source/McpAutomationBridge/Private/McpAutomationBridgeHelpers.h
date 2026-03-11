@@ -344,6 +344,39 @@ static inline UObject* ResolveObjectFromPath(const FString& InObjectPath, bool b
   return nullptr;
 }
 
+#if WITH_EDITOR
+static inline UWorld* ResolveInspectionWorld(const TSharedPtr<FJsonObject>& Payload, FString* OutResolvedWorldType = nullptr) {
+  FString RequestedWorldType = TEXT("auto");
+  if (Payload.IsValid()) {
+    Payload->TryGetStringField(TEXT("worldType"), RequestedWorldType);
+  }
+
+  RequestedWorldType = RequestedWorldType.TrimStartAndEnd().ToLower();
+
+  UWorld* EditorWorld = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+  UWorld* PieWorld = GEditor ? GEditor->PlayWorld : nullptr;
+  UWorld* SelectedWorld = nullptr;
+  FString ResolvedWorldType = TEXT("unavailable");
+
+  if (RequestedWorldType.Equals(TEXT("pie"))) {
+    SelectedWorld = PieWorld ? PieWorld : EditorWorld;
+    ResolvedWorldType = PieWorld ? TEXT("pie") : (EditorWorld ? TEXT("editor") : TEXT("unavailable"));
+  } else if (RequestedWorldType.Equals(TEXT("editor"))) {
+    SelectedWorld = EditorWorld ? EditorWorld : PieWorld;
+    ResolvedWorldType = EditorWorld ? TEXT("editor") : (PieWorld ? TEXT("pie") : TEXT("unavailable"));
+  } else {
+    SelectedWorld = PieWorld ? PieWorld : EditorWorld;
+    ResolvedWorldType = PieWorld ? TEXT("pie") : (EditorWorld ? TEXT("editor") : TEXT("unavailable"));
+  }
+
+  if (OutResolvedWorldType) {
+    *OutResolvedWorldType = ResolvedWorldType;
+  }
+
+  return SelectedWorld;
+}
+#endif
+
 /**
  * Sanitize a file path for use with file operations (export/import snapshot, etc.).
  * Unlike SanitizeProjectRelativePath which requires asset roots (/Game, /Engine, /Script),

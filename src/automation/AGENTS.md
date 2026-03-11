@@ -1,38 +1,28 @@
-# src/automation
+# src/automation Instructions
 
-WebSocket bridge client and protocol handling (9 files).
+Canonical repository guidance lives in [`../../AGENTS.md`](../../AGENTS.md).
 
-## OVERVIEW
-Manages connection to Unreal Engine and provides a promise-based API for automation requests.
+This directory owns the bridge client, connection lifecycle, handshake, request tracking, and message flow between the MCP server and the Unreal plugin.
 
-## STRUCTURE
-```
-automation/
-├── bridge.ts              # Main AutomationBridge class (36KB)
-├── connection-manager.ts  # Reconnect logic, heartbeat
-├── handshake.ts           # Protocol version negotiation
-├── message-handler.ts     # JSON-RPC frame processing
-├── message-schema.ts      # Message type definitions
-├── request-tracker.ts     # Pending request tracking
-├── types.ts               # TypeScript interfaces
-└── index.ts               # Module exports
-```
+## Keep These Invariants
 
-## WHERE TO LOOK
-| Task | File | Notes |
-|------|------|-------|
-| Bridge Client | `bridge.ts` | Main AutomationBridge class |
-| Connection | `connection-manager.ts` | Reconnect logic, heartbeat |
-| Handshake | `handshake.ts` | Protocol version negotiation |
-| Protocol Logic | `message-handler.ts` | JSON-RPC frame processing |
+- Every request must have tracked request lifecycle state.
+- Handshake must complete before normal automation traffic begins.
+- Heartbeat and reconnect behavior must stay intact.
+- Timeouts must fail cleanly and release pending request state.
+- Never log capability tokens or other connection secrets.
 
-## CONVENTIONS
-- **Request Tracking**: Every request must have a unique ID tracked in `request-tracker.ts`.
-- **Handshake Protocol**: Must negotiate capabilities before sending commands.
-- **Byte Checks**: WebSocket size limits must be checked in **BYTES**, not string length.
-- **Retry Strategy**: Exponential backoff for connection failures.
+## Key Files
 
-## ANTI-PATTERNS
-- **Raw WS Send**: Never use `ws.send()` directly; use the bridge's send queue.
-- **Unhandled Timeouts**: Every request must have a configurable timeout.
-- **Logging Secret Tokens**: Never log the `MCP_AUTOMATION_CAPABILITY_TOKEN`.
+- `bridge.ts`: main bridge client
+- `connection-manager.ts`: reconnect and heartbeat behavior
+- `handshake.ts`: bridge negotiation
+- `message-handler.ts`: frame parsing and dispatch
+- `request-tracker.ts`: pending request ownership
+
+## High-Risk Mistakes
+
+- Bypassing request tracking
+- Writing directly to sockets from random call sites
+- Comparing payload size by string length instead of byte size
+- Leaving timers, listeners, or pending requests orphaned after failure paths

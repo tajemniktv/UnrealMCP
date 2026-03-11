@@ -1,40 +1,28 @@
-# Plugins/McpAutomationBridge
+# plugins/McpAutomationBridge Instructions
 
-Native C++ Automation Bridge for Unreal Engine 5.0-5.7.
+Canonical repository guidance lives in [`../../AGENTS.md`](../../AGENTS.md).
 
-## OVERVIEW
-Editor-only UE subsystem executing automation requests received via WebSocket. 56 handler files, 70 C++ source files total.
+This plugin is the Unreal-side execution layer for automation requests. Changes here can crash the editor if they bypass the existing safety patterns.
 
-## STRUCTURE
-```
-Source/McpAutomationBridge/
-├── Public/
-│   ├── McpAutomationBridgeSubsystem.h  # Main subsystem, handler declarations
-│   └── McpAutomationBridgeSettings.h   # Host/Port/Token config
-├── Private/
-│   ├── McpAutomationBridgeSubsystem.cpp    # Initialize, tick, dispatch
-│   ├── McpAutomationBridge_ProcessRequest.cpp  # Request routing
-│   ├── *Handlers.cpp                       # Action implementations (56 files)
-│   └── McpAutomationBridgeHelpers.h        # Critical UE 5.7 safety helpers
-└── McpAutomationBridge.Build.cs
-```
+## Keep These Invariants
 
-## WHERE TO LOOK
-| Task | Location | Notes |
-|------|----------|-------|
-| Add handler | `*Handlers.cpp` | Declare in `Subsystem.h`, register in `InitializeHandlers()` |
-| Save Asset | `McpSafeAssetSave(Asset)` | Use helper in `McpAutomationBridgeHelpers.h` |
-| Component creation | `SCS->CreateNode()` | Use proper SCS ownership for UE 5.7 |
-| JSON Parsing | `FJsonObjectConverter` | UE standard for Struct ↔ JSON |
-| Path Security | `SanitizeProjectRelativePath()` | Block traversal attacks |
+- Register new native actions in `UMcpAutomationBridgeSubsystem::InitializeHandlers()`.
+- Preserve game-thread safety; handler execution must remain compatible with subsystem dispatch.
+- Use the existing helper and sanitization utilities instead of ad hoc path or asset handling.
+- On Unreal 5.7 paths, use the project safe-save helpers instead of `UPackage::SavePackage()`.
+- For Blueprint SCS/component work, follow the existing ownership patterns (`SCS->CreateNode()` and `AddNode()`).
 
-## CONVENTIONS
-- **Game Thread Safety**: Handlers dispatched to game thread automatically by subsystem.
-- **UE 5.7+ SCS**: Component templates owned by `SCS_Node`, not Blueprint.
-- **Safe Saving**: NEVER use `UPackage::SavePackage()`. Use `McpSafeAssetSave`.
-- **ANY_PACKAGE**: Deprecated. Use `nullptr` for path-based object lookups.
+## Where To Change Things
 
-## ANTI-PATTERNS
-- **Modal Dialogs**: Avoid `UEditorAssetLibrary::SaveAsset()` on new assets (crashes D3D12).
-- **Hardcoded Paths**: Do not use absolute Windows paths in handlers.
-- **Blocking Thread**: WebSocket frame processing must not block game thread.
+- Public declarations: `Source/McpAutomationBridge/Public/`
+- Request routing and subsystem behavior: `Source/McpAutomationBridge/Private/McpAutomationBridgeSubsystem.cpp`
+- Native action implementations: `Source/McpAutomationBridge/Private/*Handlers.cpp`
+- Shared helpers and safety code: `Source/McpAutomationBridge/Private/McpAutomationBridgeHelpers.h`
+
+## High-Risk Mistakes
+
+- Using deprecated object lookup patterns such as `ANY_PACKAGE`
+- Saving assets through the wrong Unreal API path
+- Blocking the main thread with long-running or modal editor behavior
+- Introducing absolute machine-specific paths
+- Diverging native action names from the TypeScript side
