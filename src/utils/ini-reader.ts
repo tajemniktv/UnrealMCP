@@ -1,7 +1,21 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+const iniCache = new Map<string, Record<string, Record<string, string>> | Error>();
+
+export function clearIniCache(): void {
+  iniCache.clear();
+}
+
 export async function readIniFile(filePath: string): Promise<Record<string, Record<string, string>>> {
+  if (iniCache.has(filePath)) {
+    const cached = iniCache.get(filePath)!;
+    if (cached instanceof Error) {
+      throw cached;
+    }
+    return cached;
+  }
+
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     const result: Record<string, Record<string, string>> = {};
@@ -27,9 +41,12 @@ export async function readIniFile(filePath: string): Promise<Record<string, Reco
       }
     }
 
+    iniCache.set(filePath, result);
     return result;
   } catch (error) {
-    throw new Error(`Failed to read INI file at ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    const wrappedError = new Error(`Failed to read INI file at ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    iniCache.set(filePath, wrappedError);
+    throw wrappedError;
   }
 }
 

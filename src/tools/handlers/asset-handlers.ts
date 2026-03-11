@@ -86,6 +86,26 @@ interface AssetOperationResponse {
   [key: string]: unknown;
 }
 
+/**
+ * Resolves a destination path for asset operations like duplicate and rename.
+ * Handles deriving path from newName and sourcePath parent if destinationPath is missing.
+ */
+function resolveAssetDestinationPath(sourcePath: string, destinationPath?: string, newName?: string): string | undefined {
+  let resolvedPath = destinationPath;
+  if (newName) {
+    if (!resolvedPath) {
+      const lastSlash = sourcePath.lastIndexOf('/');
+      const parentDir = lastSlash > 0 ? sourcePath.substring(0, lastSlash) : '/Game';
+      resolvedPath = `${parentDir}/${newName}`;
+    } else if (!resolvedPath.endsWith(newName)) {
+      if (resolvedPath.endsWith('/')) {
+        resolvedPath = `${resolvedPath}${newName}`;
+      }
+    }
+  }
+  return resolvedPath;
+}
+
 export async function handleAssetTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
   try {
     switch (action) {
