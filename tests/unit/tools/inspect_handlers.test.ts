@@ -1,4 +1,58 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PluginDescriptorSummary, ProjectContextSummary } from '../../../src/tools/handlers/modding-utils.js';
+
+const mockedPluginDescriptor: PluginDescriptorSummary = {
+    mountRoot: '/McpAutomationBridge',
+    pluginName: 'McpAutomationBridge',
+    pluginPath: 'E:/MockProject/Plugins/McpAutomationBridge',
+    pluginFile: 'E:/MockProject/Plugins/McpAutomationBridge/McpAutomationBridge.uplugin',
+    contentRoot: 'E:/MockProject/Plugins/McpAutomationBridge/Content',
+    sourceRoot: 'E:/MockProject/Plugins/McpAutomationBridge/Source',
+    type: 'plugin',
+    descriptor: {
+        FriendlyName: 'MCP Automation Bridge',
+        VersionName: '0.1.1',
+        CanContainContent: true,
+        Modules: [{ Name: 'McpAutomationBridge', Type: 'Editor' }]
+    }
+};
+
+const mockedProjectContext: ProjectContextSummary = {
+    repoRoot: 'E:/MockProject',
+    projectFile: 'E:/MockProject/FactoryGame.uproject',
+    projectName: 'FactoryGame'
+};
+
+vi.mock('../../../src/tools/handlers/modding-utils.js', async () => {
+    const actual = await vi.importActual<typeof import('../../../src/tools/handlers/modding-utils.js')>('../../../src/tools/handlers/modding-utils.js');
+    return {
+        ...actual,
+        findProjectContext: vi.fn(() => mockedProjectContext),
+        findPluginDescriptorByRoot: vi.fn((_projectRoot: string, mountRoot: string | undefined) =>
+            mountRoot?.toLowerCase() === mockedPluginDescriptor.mountRoot.toLowerCase() ? mockedPluginDescriptor : undefined
+        ),
+        findPluginDescriptorByName: vi.fn((_projectRoot: string, pluginName: string | undefined) =>
+            pluginName?.toLowerCase() === mockedPluginDescriptor.pluginName.toLowerCase() ? mockedPluginDescriptor : undefined
+        ),
+        listPluginDescriptors: vi.fn(() => [mockedPluginDescriptor]),
+        listTargetFiles: vi.fn(() => [{ name: 'FactoryGameEditor', path: 'E:/MockProject/Source/FactoryGameEditor.Target.cs' }]),
+        summarizeDescriptor: vi.fn(() => ({
+            mountRoot: mockedPluginDescriptor.mountRoot,
+            pluginName: mockedPluginDescriptor.pluginName,
+            pluginPath: mockedPluginDescriptor.pluginPath,
+            pluginFile: mockedPluginDescriptor.pluginFile,
+            contentRoot: mockedPluginDescriptor.contentRoot,
+            sourceRoot: mockedPluginDescriptor.sourceRoot,
+            type: mockedPluginDescriptor.type,
+            friendlyName: 'MCP Automation Bridge',
+            versionName: '0.1.1',
+            canContainContent: true,
+            modules: [{ Name: 'McpAutomationBridge', Type: 'Editor' }],
+            plugins: []
+        }))
+    };
+});
+
 import { handleInspectTools, normalizeInspectAction } from '../../../src/tools/handlers/inspect-handlers';
 
 describe('Inspect Handlers', () => {
@@ -89,6 +143,66 @@ describe('Inspect Handlers', () => {
         expect(result.actualWorldType).toBe('pie');
         expect((result.viewport as Record<string, unknown>).width).toBe(1920);
         expect((result.performance as Record<string, unknown>).approximateFps).toBe(60);
+    });
+
+    it('batches runtime blueprint loadability checks through the inspect bridge', async () => {
+        mockTools.automationBridge.sendAutomationRequest.mockImplementation(async (_toolName: string, args: Record<string, unknown>) => {
+            if (_toolName === 'asset_query' && args.subAction === 'search_assets') {
+                return {
+                    success: true,
+                    assets: [
+                        { path: '/McpAutomationBridge/Config/BP_Config.BP_Config' }
+                    ]
+                };
+            }
+            if (_toolName === 'inspect' && args.action === 'batch_inspect_objects') {
+                return {
+                    success: true,
+                    results: [
+                        {
+                            objectPath: '/McpAutomationBridge/Config/BP_Config.BP_Config_C',
+                            success: true,
+                            loadable: true,
+                            className: 'BlueprintGeneratedClass'
+                        }
+                    ]
+                };
+            }
+            if (_toolName === 'inspect' && args.action === 'list_objects') {
+                return {
+                    success: true,
+                    objects: [{ name: 'McpAutomationBridgeRuntimeActor' }]
+                };
+            }
+            if (_toolName === 'system_control' && args.action === 'tail_logs') {
+                return {
+                    success: true,
+                    lines: []
+                };
+            }
+            return { success: true };
+        });
+
+        const result = await handleInspectTools('verify_mod_runtime', {
+            pluginName: 'McpAutomationBridge'
+        }, mockTools);
+
+        expect(result.success).toBe(true);
+        expect((result.configChecks as Array<Record<string, unknown>>)[0]?.target).toBe('/McpAutomationBridge/Config/BP_Config.BP_Config_C');
+        expect(result.widgetChecks).toEqual([]);
+
+        const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        const batchCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'batch_inspect_objects');
+        expect(batchCall).toBeTruthy();
+        expect(batchCall[1]?.objectPaths).toEqual([
+            '/McpAutomationBridge/Config/BP_Config.BP_Config_C'
+        ]);
+
+        const perItemChecks = calls.filter((entry: unknown[]) =>
+            entry[0] === 'inspect' &&
+            (entry[1]?.action === 'inspect_object' || entry[1]?.action === 'verify_class_loadability' || entry[1]?.action === 'verify_widget_loadability')
+        );
+        expect(perItemChecks).toEqual([]);
     });
 
     it('emits issues for incompatible replacement meshes', async () => {
