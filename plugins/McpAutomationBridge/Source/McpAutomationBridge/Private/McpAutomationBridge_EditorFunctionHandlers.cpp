@@ -387,6 +387,43 @@ static bool McpRunPythonTemplate(const FString& TemplateName,
         TEXT("    'hasRootSection': root_section is not None,\n")
         TEXT("    'rootSectionClass': root_section.get_class().get_name() if root_section and root_section.get_class() else '',\n")
         TEXT("}\n");
+  } else if (TemplateName.Equals(TEXT("mcp_blueprint"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("bp_path = str(mcp_params.get('blueprintPath') or '')\n")
+        TEXT("if not bp_path:\n")
+        TEXT("    raise RuntimeError(\"mcp_blueprint template requires blueprintPath\")\n")
+        TEXT("asset = unreal.EditorAssetLibrary.load_asset(bp_path)\n")
+        TEXT("if not asset:\n")
+        TEXT("    raise RuntimeError(f\"Could not load asset at {bp_path}\")\n")
+        TEXT("sub_action = str(mcp_params.get('subAction') or '')\n")
+        TEXT("result = {'success': True, 'blueprintPath': bp_path, 'subAction': sub_action}\n")
+        TEXT("if sub_action == 'get_event_graph':\n")
+        TEXT("    graphs = []\n")
+        TEXT("    try:\n")
+        TEXT("        graphs = asset.get_editor_property('uber_graph_pages')\n")
+        TEXT("    except:\n")
+        TEXT("        pass\n")
+        TEXT("    if not graphs:\n")
+        TEXT("        try:\n")
+        TEXT("            graphs = asset.get_editor_property('function_graphs')\n")
+        TEXT("        except:\n")
+        TEXT("            pass\n")
+        TEXT("    event_graph = None\n")
+        TEXT("    for g in graphs:\n")
+        TEXT("        if g.get_name() == 'EventGraph':\n")
+        TEXT("            event_graph = g\n")
+        TEXT("            break\n")
+        TEXT("    if not event_graph and graphs:\n")
+        TEXT("        event_graph = graphs[0]\n")
+        TEXT("    if event_graph:\n")
+        TEXT("        result['graphName'] = event_graph.get_name()\n")
+        TEXT("        result['graphPath'] = event_graph.get_path_name()\n")
+        TEXT("    else:\n")
+        TEXT("        raise RuntimeError(\"Could not find EventGraph\")\n")
+        TEXT("elif sub_action in ['create_call_function_node', 'set_node_pin_value', 'create_add_delegate', 'connect_pins']:\n")
+        TEXT("    result['message'] = f\"Use manage_blueprint_graph.{sub_action} tool action directly for safer and more robust results. The C++ handlers have been improved to support your workflow directly.\"\n")
+        TEXT("else:\n")
+        TEXT("    raise RuntimeError(f\"Unknown subAction: {sub_action}\")\n");
   } else {
     OutError = FString::Printf(TEXT("Unsupported Python template '%s'."), *TemplateName);
     return false;
@@ -674,6 +711,7 @@ bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
     Templates.Add(MakeShared<FJsonValueString>(TEXT("validate_selected_assets")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("audit_assets_in_path")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("audit_mod_config_asset")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("mcp_blueprint")));
     Result->SetArrayField(TEXT("templates"), Templates);
     Result->SetBoolField(TEXT("unsafeExecutionSupported"), bPythonPluginEnabled);
     Result->SetStringField(

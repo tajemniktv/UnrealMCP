@@ -1080,6 +1080,10 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
     // Map user-friendly node names to their K2Node class names
     static TMap<FString, FString> NodeTypeAliases = {
+        // Canonical Overrides
+        {TEXT("CallFunction"), TEXT("K2Node_CallFunction")},
+        {TEXT("AddDelegate"), TEXT("K2Node_AddDelegate")},
+        {TEXT("CustomEvent"), TEXT("K2Node_CustomEvent")},
         // Flow Control
         {TEXT("Branch"), TEXT("K2Node_IfThenElse")},
         {TEXT("IfThenElse"), TEXT("K2Node_IfThenElse")},
