@@ -392,3 +392,18 @@ Contributions welcome! Please:
 ## License
 
 MIT — See [LICENSE](LICENSE)
+
+### Dynamic Tool Discovery & Token Optimization
+
+To heavily optimize token usage when connecting to LLMs, the MCP server can operate in a dynamic discovery mode. By default, setting `MCP_DEFAULT_CATEGORIES=core` in your `.env` file will start the server exposing only 8 essential tools (saving ~150KB of JSON schema tokens per message).
+
+When the agent requires more advanced tools, it has been instructed (via `AGENTS.md`) to call the `manage_tools` tool to dynamically `enable_category`.
+
+Categories include:
+- `core`: Basic system and tool management.
+- `world`: Level, landscape, and environment management.
+- `authoring`: Asset creation (widgets, materials, blueprints).
+- `gameplay`: AI, inventory, combat, networking, GAS.
+- `utility`: Helper utilities and inspectors.
+
+If you are a user concerned about context window depletion, simply use `MCP_DEFAULT_CATEGORIES=core` and let the agent enable the tool categories it needs on the fly!

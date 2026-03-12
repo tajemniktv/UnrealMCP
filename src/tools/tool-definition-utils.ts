@@ -14,7 +14,7 @@ export const commonSchemas = {
       y: { type: 'number' },
       z: { type: 'number' }
     },
-    description: '3D location (x, y, z).'
+    description: 'Loc'
   },
   rotation: {
     type: 'object',
@@ -23,7 +23,7 @@ export const commonSchemas = {
       yaw: { type: 'number' },
       roll: { type: 'number' }
     },
-    description: '3D rotation (pitch, yaw, roll).'
+    description: 'Rot'
   },
   scale: {
     type: 'object',
@@ -32,7 +32,7 @@ export const commonSchemas = {
       y: { type: 'number' },
       z: { type: 'number' }
     },
-    description: '3D scale (x, y, z).'
+    description: 'Scale'
   },
   vector3: {
     type: 'object',
@@ -41,7 +41,7 @@ export const commonSchemas = {
       y: { type: 'number' },
       z: { type: 'number' }
     },
-    description: '3D vector.'
+    description: 'Vec3'
   },
   vector2: {
     type: 'object',
@@ -49,7 +49,7 @@ export const commonSchemas = {
       x: { type: 'number' },
       y: { type: 'number' }
     },
-    description: '2D vector.'
+    description: 'Vec2'
   },
 
   // ============================================
@@ -58,7 +58,7 @@ export const commonSchemas = {
   color: {
     type: 'array',
     items: { type: 'number' },
-    description: 'RGBA color as an array [r, g, b, a].'
+    description: 'RGBA arr'
   },
   colorObject: {
     type: 'object',
@@ -68,44 +68,44 @@ export const commonSchemas = {
       b: { type: 'number' },
       a: { type: 'number' }
     },
-    description: 'RGBA color as an object.'
+    description: 'RGBA obj'
   },
 
   // ============================================
   // PATH SCHEMAS
   // ============================================
-  assetPath: { type: 'string', description: 'Asset path (for example /Game/Path/Asset or /TajsGraph/Path/Asset).' },
-  blueprintPath: { type: 'string', description: 'Blueprint asset path, including mounted plugin/mod roots.' },
-  meshPath: { type: 'string', description: 'Mesh asset path, including mounted plugin/mod roots.' },
-  texturePath: { type: 'string', description: 'Texture asset path, including mounted plugin/mod roots.' },
-  materialPath: { type: 'string', description: 'Material asset path, including mounted plugin/mod roots.' },
-  soundPath: { type: 'string', description: 'Sound asset path, including mounted plugin/mod roots.' },
-  animationPath: { type: 'string', description: 'Animation asset path, including mounted plugin/mod roots.' },
-  levelPath: { type: 'string', description: 'Level asset path, including mounted plugin/mod roots.' },
-  skeletonPath: { type: 'string', description: 'Skeleton asset path, including mounted plugin/mod roots.' },
-  skeletalMeshPath: { type: 'string', description: 'Skeletal mesh path, including mounted plugin/mod roots.' },
-  niagaraPath: { type: 'string', description: 'Niagara system path, including mounted plugin/mod roots.' },
-  widgetPath: { type: 'string', description: 'Widget blueprint path, including mounted plugin/mod roots.' },
+  assetPath: { type: 'string', description: 'Path' },
+  blueprintPath: { type: 'string', description: 'Path' },
+  meshPath: { type: 'string', description: 'Path' },
+  texturePath: { type: 'string', description: 'Path' },
+  materialPath: { type: 'string', description: 'Path' },
+  soundPath: { type: 'string', description: 'Path' },
+  animationPath: { type: 'string', description: 'Path' },
+  levelPath: { type: 'string', description: 'Path' },
+  skeletonPath: { type: 'string', description: 'Path' },
+  skeletalMeshPath: { type: 'string', description: 'Path' },
+  niagaraPath: { type: 'string', description: 'Path' },
+  widgetPath: { type: 'string', description: 'Path' },
 
-  physicsAssetPath: { type: 'string', description: 'Path to physics asset.' },
-  morphTargetPath: { type: 'string', description: 'Path to morph target.' },
-  clothAssetPath: { type: 'string', description: 'Path to cloth asset.' },
-  iconPath: { type: 'string', description: 'Path to icon texture.' },
-  itemDataPath: { type: 'string', description: 'Path to item data asset.' },
-  gameplayAbilityPath: { type: 'string', description: 'Path to gameplay ability.' },
-  gameplayEffectPath: { type: 'string', description: 'Path to gameplay effect.' },
-  gameplayCuePath: { type: 'string', description: 'Path to gameplay cue.' },
-  meshAssetPath: { type: 'string', description: 'Path to mesh asset.' },
-  textureAssetPath: { type: 'string', description: 'Path to texture asset.' },
-  materialAssetPath: { type: 'string', description: 'Path to material asset.' },
-  soundAssetPath: { type: 'string', description: 'Path to sound asset.' },
-  animationAssetPath: { type: 'string', description: 'Path to animation asset.' },
-  blueprintAssetPath: { type: 'string', description: 'Path to blueprint asset.' },
+  physicsAssetPath: { type: 'string', description: 'Path' },
+  morphTargetPath: { type: 'string', description: 'Path' },
+  clothAssetPath: { type: 'string', description: 'Path' },
+  iconPath: { type: 'string', description: 'Path' },
+  itemDataPath: { type: 'string', description: 'Path' },
+  gameplayAbilityPath: { type: 'string', description: 'Path' },
+  gameplayEffectPath: { type: 'string', description: 'Path' },
+  gameplayCuePath: { type: 'string', description: 'Path' },
+  meshAssetPath: { type: 'string', description: 'Path' },
+  textureAssetPath: { type: 'string', description: 'Path' },
+  materialAssetPath: { type: 'string', description: 'Path' },
+  soundAssetPath: { type: 'string', description: 'Path' },
+  animationAssetPath: { type: 'string', description: 'Path' },
+  blueprintAssetPath: { type: 'string', description: 'Path' },
 
-  directoryPath: { type: 'string', description: 'Path to a directory.' },
-  outputPath: { type: 'string', description: 'Output file or directory path.' },
+  directoryPath: { type: 'string', description: 'Path' },
+  outputPath: { type: 'string', description: 'Path' },
   destinationPath: { type: 'string', description: 'Destination path for move/copy.' },
-  savePath: { type: 'string', description: 'Path to save the asset.' },
+  savePath: { type: 'string', description: 'Path' },
   sourcePath: { type: 'string', description: 'Source path for import/move/copy.' },
   targetPath: { type: 'string', description: 'Target path for operations.' },
   directoryPathForCreation: { type: 'string', description: 'Directory path for asset creation.' },
@@ -310,18 +310,18 @@ export const commonSchemas = {
   // ============================================
   
   // Path-like string schemas
-  controllerPath: { type: 'string', description: 'Path to controller blueprint.' },
-  behaviorTreePath: { type: 'string', description: 'Path to behavior tree asset.' },
-  blackboardPath: { type: 'string', description: 'Path to blackboard asset.' },
-  queryPath: { type: 'string', description: 'Path to EQS query asset.' },
-  stateTreePath: { type: 'string', description: 'Path to State Tree asset.' },
-  definitionPath: { type: 'string', description: 'Path to definition asset.' },
-  configPath: { type: 'string', description: 'Path to config asset.' },
-  lootTablePath: { type: 'string', description: 'Path to loot table asset.' },
-  recipePath: { type: 'string', description: 'Path to crafting recipe asset.' },
-  effectPath: { type: 'string', description: 'Path to effect asset.' },
-  abilityPath: { type: 'string', description: 'Path to ability asset.' },
-  animBlueprintPath: { type: 'string', description: 'Path to animation blueprint.' },
+  controllerPath: { type: 'string', description: 'Path' },
+  behaviorTreePath: { type: 'string', description: 'Path' },
+  blackboardPath: { type: 'string', description: 'Path' },
+  queryPath: { type: 'string', description: 'Path' },
+  stateTreePath: { type: 'string', description: 'Path' },
+  definitionPath: { type: 'string', description: 'Path' },
+  configPath: { type: 'string', description: 'Path' },
+  lootTablePath: { type: 'string', description: 'Path' },
+  recipePath: { type: 'string', description: 'Path' },
+  effectPath: { type: 'string', description: 'Path' },
+  abilityPath: { type: 'string', description: 'Path' },
+  animBlueprintPath: { type: 'string', description: 'Path' },
   
   // Name schemas for specific domains  
   keyName: { type: 'string', description: 'Name of the key.' },
@@ -381,18 +381,18 @@ export const commonSchemas = {
   cacheName: { type: 'string', description: 'Name of the cache.' },
   
   // Class path schemas
-  widgetClass: { type: 'string', description: 'Widget class path.' },
-  projectileClass: { type: 'string', description: 'Projectile class path.' },
-  soundClassPath: { type: 'string', description: 'Sound class path.' },
-  parentClassPath: { type: 'string', description: 'Parent class path.' },
-  areaClass: { type: 'string', description: 'Navigation area class path.' },
+  widgetClass: { type: 'string', description: 'Path' },
+  projectileClass: { type: 'string', description: 'Path' },
+  soundClassPath: { type: 'string', description: 'Path' },
+  parentClassPath: { type: 'string', description: 'Path' },
+  areaClass: { type: 'string', description: 'Path' },
   
   // Trace schemas
   traceChannel: { type: 'string', description: 'Collision trace channel.' },
   
   // IK/Rig path schemas
-  sourceIKRigPath: { type: 'string', description: 'Source IK rig path.' },
-  targetIKRigPath: { type: 'string', description: 'Target IK rig path.' },
+  sourceIKRigPath: { type: 'string', description: 'Path' },
+  targetIKRigPath: { type: 'string', description: 'Path' },
   sourceChain: { type: 'string', description: 'Source chain name.' },
   targetChain: { type: 'string', description: 'Target chain name.' },
   
@@ -424,19 +424,19 @@ export const commonSchemas = {
   group: { type: 'string', description: 'Group name.' },
   
   // Audio-specific paths
-  wavePath: { type: 'string', description: 'Path to SoundWave asset.' },
-  attenuationPath: { type: 'string', description: 'Path to attenuation asset.' },
-  concurrencyPath: { type: 'string', description: 'Path to concurrency asset.' },
+  wavePath: { type: 'string', description: 'Path' },
+  attenuationPath: { type: 'string', description: 'Path' },
+  concurrencyPath: { type: 'string', description: 'Path' },
   
   // Niagara-specific paths
-  systemPath: { type: 'string', description: 'Path to Niagara system.' },
-  emitterPath: { type: 'string', description: 'Path to Niagara emitter.' },
+  systemPath: { type: 'string', description: 'Path' },
+  emitterPath: { type: 'string', description: 'Path' },
   emitterName: { type: 'string', description: 'Name of the emitter.' },
   
   // Level-related schemas
   sublevelName: { type: 'string', description: 'Name of the sublevel.' },
-  parentLevel: { type: 'string', description: 'Parent level path.' },
-  templateLevel: { type: 'string', description: 'Template level path.' },
+  parentLevel: { type: 'string', description: 'Path' },
+  templateLevel: { type: 'string', description: 'Path' },
   
   // Montage section schemas
   fromSection: { type: 'string', description: 'Source section name.' },
@@ -464,7 +464,7 @@ export const commonSchemas = {
   stateMachineName: { type: 'string', description: 'State machine name.' },
   
   // Export/Import paths
-  exportPath: { type: 'string', description: 'Export file path.' },
+  exportPath: { type: 'string', description: 'Path' },
   
   // Physics body schemas
   bodyName: { type: 'string', description: 'Physics body name.' },
@@ -476,12 +476,12 @@ export const commonSchemas = {
   morphTargetName: { type: 'string', description: 'Morph target name.' },
   
   // Brush/Style schemas
-  brush: { type: 'string', description: 'Brush asset path.' },
+  brush: { type: 'string', description: 'Path' },
   style: { type: 'string', description: 'Style preset name.' },
   
   // Binding schemas
   bindingSource: { type: 'string', description: 'Binding source name.' },
-  sourceBinding: { type: 'string', description: 'Source binding path.' },
+  sourceBinding: { type: 'string', description: 'Path' },
   
   // Staging/Simulation schemas
   stageName: { type: 'string', description: 'Simulation stage name.' },
@@ -529,17 +529,17 @@ export const commonSchemas = {
   // SESSION 5: More Path Schemas
   // ============================================
   
-  functionPath: { type: 'string', description: 'Path to function asset.' },
-  particleSystemPath: { type: 'string', description: 'Path to particle system.' },
-  cameraShakePath: { type: 'string', description: 'Path to camera shake asset.' },
-  decalPath: { type: 'string', description: 'Path to decal material.' },
-  actorPath: { type: 'string', description: 'Path to actor.' },
-  volumePath: { type: 'string', description: 'Path to volume.' },
+  functionPath: { type: 'string', description: 'Path' },
+  particleSystemPath: { type: 'string', description: 'Path' },
+  cameraShakePath: { type: 'string', description: 'Path' },
+  decalPath: { type: 'string', description: 'Path' },
+  actorPath: { type: 'string', description: 'Path' },
+  volumePath: { type: 'string', description: 'Path' },
   sessionId: { type: 'string', description: 'Session ID.' },
-  hlodLayerPath: { type: 'string', description: 'Path to HLOD layer.' },
+  hlodLayerPath: { type: 'string', description: 'Path' },
   levelInstanceName: { type: 'string', description: 'Level instance name.' },
   serverAddress: { type: 'string', description: 'Server address.' },
-  nodeClass: { type: 'string', description: 'Node class path.' },
+  nodeClass: { type: 'string', description: 'Path' },
   animationName: { type: 'string', description: 'Animation name.' }
 };
 
