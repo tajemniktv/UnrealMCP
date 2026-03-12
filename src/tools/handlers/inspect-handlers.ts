@@ -1578,22 +1578,94 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       const widgetBlueprints = Array.isArray(summaryRecord.widgetBlueprintCandidates) ? summaryRecord.widgetBlueprintCandidates as Array<Record<string, unknown>> : [];
       const plugin = summaryRecord.plugin as Record<string, unknown> | undefined;
 
-      const configChecks = await Promise.all(configBlueprints.slice(0, 5).map(async (entry) => {
+      const configTargets = configBlueprints.slice(0, 5).map((entry) => {
         const objectPath = typeof entry.path === 'string' ? entry.path : '';
-        return await handleInspectTools('verify_class_loadability', { objectPath }, tools);
-      }));
-      const widgetChecks = await Promise.all(widgetBlueprints.slice(0, 5).map(async (entry) => {
+        const variants = deriveBlueprintVariants(objectPath);
+        return {
+          objectPath,
+          targetPath: String(variants.generatedClassPath ?? variants.assetObjectPath ?? ''),
+          variants
+        };
+      });
+      const widgetTargets = widgetBlueprints.slice(0, 5).map((entry) => {
         const objectPath = typeof entry.path === 'string' ? entry.path : '';
-        return await handleInspectTools('verify_widget_loadability', { objectPath }, tools);
-      }));
-      const objectChecks = await handleInspectTools('find_mod_objects', {
-        filter: typeof plugin?.pluginName === 'string' ? plugin.pluginName : undefined
-      }, tools);
-      const logChecks = await executeAutomationRequest(tools, 'system_control', {
-        action: 'tail_logs',
-        filter: typeof plugin?.pluginName === 'string' ? plugin.pluginName : undefined,
-        maxLines: 100
-      }) as Record<string, unknown>;
+        const variants = deriveBlueprintVariants(objectPath);
+        return {
+          objectPath,
+          targetPath: String(variants.assetObjectPath ?? ''),
+          variants
+        };
+      });
+      const batchResultsByPath = new Map<string, Record<string, unknown>>();
+      const batchPaths = Array.from(new Set(
+        [...configTargets, ...widgetTargets]
+          .map((entry) => entry.targetPath)
+          .filter((entry) => entry.length > 0)
+      ));
+
+      if (batchPaths.length > 0) {
+        try {
+          const batchResponse = await executeAutomationRequest(tools, 'inspect', {
+            action: 'batch_inspect_objects',
+            objectPaths: batchPaths
+          }) as Record<string, unknown>;
+
+          if (batchResponse.success !== false && Array.isArray(batchResponse.results)) {
+            for (const result of batchResponse.results) {
+              const record = toRecord(result);
+              const objectPath = asString(record.objectPath);
+              if (objectPath) {
+                batchResultsByPath.set(objectPath, record);
+              }
+            }
+          }
+        } catch {
+          // Older bridge builds may not implement batching yet. Fall back below.
+        }
+      }
+
+      const buildRuntimeCheck = async (
+        target: { objectPath: string; targetPath: string; variants: ReturnType<typeof deriveBlueprintVariants> },
+        fallbackAction: 'verify_class_loadability' | 'verify_widget_loadability'
+      ): Promise<Record<string, unknown>> => {
+        const batchResult = batchResultsByPath.get(target.targetPath);
+        if (batchResult) {
+          const success = batchResult.success !== false;
+          return cleanObject({
+            success,
+            loadable: batchResult.loadable !== false && success,
+            target: target.targetPath,
+            response: batchResult,
+            variants: target.variants
+          });
+        }
+
+        if (!target.objectPath) {
+          return cleanObject({
+            success: false,
+            loadable: false,
+            target: target.targetPath,
+            variants: target.variants,
+            error: 'MISSING_OBJECT_PATH',
+            message: 'Blueprint candidate did not provide an object path.'
+          });
+        }
+
+        return await handleInspectTools(fallbackAction, { objectPath: target.objectPath }, tools);
+      };
+
+      const [configChecks, widgetChecks, objectChecks, logChecks] = await Promise.all([
+        Promise.all(configTargets.map(async (entry) => await buildRuntimeCheck(entry, 'verify_class_loadability'))),
+        Promise.all(widgetTargets.map(async (entry) => await buildRuntimeCheck(entry, 'verify_widget_loadability'))),
+        handleInspectTools('find_mod_objects', {
+          filter: typeof plugin?.pluginName === 'string' ? plugin.pluginName : undefined
+        }, tools),
+        executeAutomationRequest(tools, 'system_control', {
+          action: 'tail_logs',
+          filter: typeof plugin?.pluginName === 'string' ? plugin.pluginName : undefined,
+          maxLines: 100
+        }) as Promise<Record<string, unknown>>
+      ]);
       const issues: Record<string, unknown>[] = [];
       if ((objectChecks as Record<string, unknown>).count === 0) {
         issues.push(createIssue('runtime_objects', 'No live objects were discovered for the current plugin filter.'));
