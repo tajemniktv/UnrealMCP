@@ -895,6 +895,60 @@ export async function handleAnimationAuthoringTools(
         return ResponseFactory.success(res, res.message ?? `State '${stateName}' added`);
       }
 
+      case 'add_transitions': {
+        const params = normalizeArgs(args, [
+          { key: 'blueprintPath', required: true },
+          { key: 'stateMachineName', required: true },
+          { key: 'transitions', required: true },
+          { key: 'save', default: true },
+        ]);
+
+        const blueprintPath = extractString(params, 'blueprintPath');
+        const stateMachineName = extractString(params, 'stateMachineName');
+        const transitions = params.transitions;
+        const save = extractOptionalBoolean(params, 'save') ?? true;
+
+        const res = (await executeAutomationRequest(tools, 'manage_animation_authoring', {
+          subAction: 'add_transitions',
+          blueprintPath,
+          stateMachineName,
+          transitions,
+          save,
+        })) as AutomationResponse;
+
+        if (res.success === false) {
+          return ResponseFactory.error(res.error ?? 'Failed to add transitions', res.errorCode);
+        }
+        return ResponseFactory.success(res, res.message ?? 'Transitions added');
+      }
+
+      case 'add_states': {
+        const params = normalizeArgs(args, [
+          { key: 'blueprintPath', required: true },
+          { key: 'stateMachineName', required: true },
+          { key: 'states', required: true },
+          { key: 'save', default: true },
+        ]);
+
+        const blueprintPath = extractString(params, 'blueprintPath');
+        const stateMachineName = extractString(params, 'stateMachineName');
+        const states = params.states;
+        const save = extractOptionalBoolean(params, 'save') ?? true;
+
+        const res = (await executeAutomationRequest(tools, 'manage_animation_authoring', {
+          subAction: 'add_states',
+          blueprintPath,
+          stateMachineName,
+          states,
+          save,
+        })) as AutomationResponse;
+
+        if (res.success === false) {
+          return ResponseFactory.error(res.error ?? 'Failed to add states', res.errorCode);
+        }
+        return ResponseFactory.success(res, res.message ?? 'States added');
+      }
+
       case 'add_transition': {
         const params = normalizeArgs(args, [
           { key: 'blueprintPath', required: true },
