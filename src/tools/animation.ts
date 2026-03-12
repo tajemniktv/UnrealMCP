@@ -310,28 +310,26 @@ export class AnimationTools {
 
             // Add states if provided
             if (normalizedStates.length > 0) {
-              await Promise.all(normalizedStates.map(state =>
-                bridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
-                  subAction: 'add_state',
-                  blueprintPath,
-                  stateMachineName: machineName,
-                  stateName: state.name
-                }), { timeoutMs: 30000 })
-              ));
+              await this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
+                subAction: 'add_states',
+                blueprintPath,
+                stateMachineName: machineName,
+                states: normalizedStates
+              }), { timeoutMs: 30000 });
             }
 
             // Add transitions if provided
             if (normalizedTransitions.length > 0) {
-              await Promise.all(normalizedTransitions.map(transition =>
-                bridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
-                  subAction: 'add_transition',
-                  blueprintPath,
-                  stateMachineName: machineName,
-                  fromState: transition.sourceState,
-                  toState: transition.targetState,
+              await this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
+                subAction: 'add_transitions',
+                blueprintPath,
+                stateMachineName: machineName,
+                transitions: normalizedTransitions.map(t => ({
+                  fromState: t.sourceState,
+                  toState: t.targetState,
                   crossfadeDuration: 0.2
-                }), { timeoutMs: 30000 })
-              ));
+                }))
+              }), { timeoutMs: 30000 });
             }
 
             return {
