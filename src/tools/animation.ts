@@ -303,6 +303,11 @@ export class AnimationTools {
               }
             });
 
+            const bridge = this.automationBridge;
+            if (!bridge) {
+              return { success: false, message: 'Automation bridge not available', error: 'AUTOMATION_BRIDGE_UNAVAILABLE' };
+            }
+
             // Add states if provided
             if (normalizedStates.length > 0) {
               await this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
