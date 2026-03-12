@@ -206,4 +206,62 @@ describe('System Handlers', () => {
             expect.anything()
         );
     });
+
+    it('wraps run_editor_utility through the python template path', async () => {
+        vi.spyOn(pythonFallback, 'getPythonFallbackConfig').mockReturnValue({
+            enabled: true,
+            unsafeEnabled: true,
+            timeoutMs: 15000,
+            templates: [...pythonFallback.PYTHON_TEMPLATE_NAMES]
+        });
+
+        const tools = createMockTools() as any;
+        const result = await handleSystemTools('run_editor_utility', {
+            path: '/Game/EditorUtilities/EUW_Test.EUW_Test'
+        }, tools);
+
+        expect(result.success).toBe(true);
+        expect(tools.bridge.executeEditorFunction).toHaveBeenCalledWith(
+            'RUN_PYTHON_TEMPLATE',
+            expect.objectContaining({
+                templateName: 'run_editor_utility',
+                templateParams: {
+                    path: '/Game/EditorUtilities/EUW_Test.EUW_Test'
+                }
+            }),
+            expect.anything()
+        );
+    });
+
+    it('wraps audit_assets_in_path through the python template path', async () => {
+        vi.spyOn(pythonFallback, 'getPythonFallbackConfig').mockReturnValue({
+            enabled: true,
+            unsafeEnabled: true,
+            timeoutMs: 15000,
+            templates: [...pythonFallback.PYTHON_TEMPLATE_NAMES]
+        });
+
+        const tools = createMockTools() as any;
+        const result = await handleSystemTools('audit_assets_in_path', {
+            path: '/Game/Test',
+            recursive: true,
+            className: 'StaticMesh',
+            limit: 25
+        }, tools);
+
+        expect(result.success).toBe(true);
+        expect(tools.bridge.executeEditorFunction).toHaveBeenCalledWith(
+            'RUN_PYTHON_TEMPLATE',
+            expect.objectContaining({
+                templateName: 'audit_assets_in_path',
+                templateParams: {
+                    path: '/Game/Test',
+                    recursive: true,
+                    className: 'StaticMesh',
+                    limit: 25
+                }
+            }),
+            expect.anything()
+        );
+    });
 });

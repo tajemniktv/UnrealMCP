@@ -431,6 +431,7 @@ export const coreToolDefinitions: ToolDefinition[] = [
             'run_ubt', 'run_tests', 'subscribe', 'unsubscribe', 'spawn_category', 'start_session', 'lumen_update_scene',
             'play_sound', 'create_widget', 'show_widget', 'add_widget_child',
             'set_cvar', 'get_project_settings', 'validate_assets', 'transport_self_check', 'get_bridge_status', 'get_python_fallback_status', 'run_python_template', 'run_python_code', 'run_python_file',
+            'run_editor_utility', 'validate_selected_assets', 'audit_assets_in_path',
             'set_project_setting', 'tail_logs'
           ],
           description: 'Action'
@@ -441,6 +442,7 @@ export const coreToolDefinitions: ToolDefinition[] = [
         params: commonSchemas.objectProp,
         category: commonSchemas.stringProp,
         level: commonSchemas.numberProp,
+        limit: commonSchemas.numberProp,
         enabled: commonSchemas.enabled,
         resolution: commonSchemas.resolution,
         command: commonSchemas.stringProp,
@@ -494,7 +496,7 @@ export const coreToolDefinitions: ToolDefinition[] = [
             'set_mod_config_root_class', 'replace_mod_config_section_class', 'repair_mod_config_widget_classes', 'repair_mod_config_tree', 'diff_mod_config_tree', 'check_live_bridge_capabilities', 'save_mod_config',
             'ensure_mod_config_section', 'delete_mod_config_property', 'rename_mod_config_property', 'move_mod_config_property',
             'delete_mod_config_section', 'rename_mod_config_section',
-            'resolve_mod_config_target', 'get_mod_config_descriptor', 'validate_mod_config',
+            'resolve_mod_config_target', 'get_mod_config_descriptor', 'validate_mod_config', 'diff_mod_config_expected_descriptor', 'backfill_mod_config_from_descriptor', 'migrate_mod_config_from_descriptor',
             'resolve_blueprint_variants', 'inspect_blueprint_defaults', 'inspect_cdo',
             'inspect_widget_blueprint', 'get_widget_summary',
             'verify_class_loadability', 'verify_widget_loadability',
@@ -541,6 +543,8 @@ export const coreToolDefinitions: ToolDefinition[] = [
         properties: commonSchemas.arrayOfStrings,
         sectionPrefixes: commonSchemas.arrayOfStrings,
         propertyPrefixes: commonSchemas.arrayOfStrings,
+        descriptorEntries: commonSchemas.arrayOfObjects,
+        saveAfterApply: commonSchemas.booleanProp,
         dryRun: commonSchemas.booleanProp,
         plainOnly: commonSchemas.booleanProp,
         rewriteSections: commonSchemas.booleanProp,

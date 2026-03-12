@@ -38,6 +38,55 @@ function extractPythonParams(argsTyped: SystemArgs, fallback: Record<string, unk
   return { ...fallback };
 }
 
+async function executePythonTemplate(
+  bridge: UnrealBridge | undefined,
+  argsTyped: SystemArgs,
+  templateName: string,
+  fallbackParams: Record<string, unknown> = {}
+): Promise<Record<string, unknown>> {
+  const pythonFallback = getPythonFallbackConfig();
+  if (!pythonFallback.enabled) {
+    return cleanObject({
+      success: false,
+      error: 'PYTHON_FALLBACK_DISABLED',
+      message: 'Python fallback scaffold is disabled. Set MCP_PYTHON_FALLBACK_ENABLED=true to allow template execution.',
+      templates: pythonFallback.templates
+    });
+  }
+
+  if (!isAllowedPythonTemplate(templateName)) {
+    return cleanObject({
+      success: false,
+      error: 'INVALID_PYTHON_TEMPLATE',
+      message: `Template '${templateName}' is not allowlisted.`,
+      templates: pythonFallback.templates
+    });
+  }
+
+  if (!bridge) {
+    return cleanObject({
+      success: false,
+      error: 'AUTOMATION_BRIDGE_UNAVAILABLE',
+      message: 'Unreal bridge is not available for Python template execution.'
+    });
+  }
+
+  const response = await bridge.executeEditorFunction('RUN_PYTHON_TEMPLATE', {
+    templateName,
+    templateParams: extractPythonParams(argsTyped, fallbackParams)
+  }, { timeoutMs: typeof argsTyped.timeoutMs === 'number' ? argsTyped.timeoutMs : pythonFallback.timeoutMs });
+
+  return cleanObject({
+    ...response,
+    template: templateName,
+    pythonFallback: {
+      enabled: pythonFallback.enabled,
+      unsafeEnabled: pythonFallback.unsafeEnabled,
+      timeoutMs: pythonFallback.timeoutMs
+    }
+  });
+}
+
 export async function handleSystemTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
   const argsTyped = args as SystemArgs;
   const sysAction = String(action || '').toLowerCase();
@@ -567,53 +616,53 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
       });
     }
     case 'run_python_template': {
-      const pythonFallback = getPythonFallbackConfig();
-      if (!pythonFallback.enabled) {
-        return cleanObject({
-          success: false,
-          error: 'PYTHON_FALLBACK_DISABLED',
-          message: 'Python fallback scaffold is disabled. Set MCP_PYTHON_FALLBACK_ENABLED=true to allow template execution.',
-          templates: pythonFallback.templates
-        });
-      }
-
       const templateName = typeof argsTyped.template === 'string'
         ? argsTyped.template.trim()
         : '';
-      if (!templateName || !isAllowedPythonTemplate(templateName)) {
+      if (!templateName) {
         return cleanObject({
           success: false,
           error: 'INVALID_PYTHON_TEMPLATE',
-          message: 'run_python_template requires an allowlisted template name.',
-          templates: pythonFallback.templates
+          message: 'run_python_template requires an allowlisted template name.'
         });
       }
-
-      if (!bridge) {
+      return await executePythonTemplate(bridge, argsTyped, templateName, {
+        path: argsTyped.path,
+        recursive: argsTyped.recursive,
+        className: argsTyped.className,
+        limit: argsTyped.limit
+      });
+    }
+    case 'run_editor_utility': {
+      if (!argsTyped.path?.trim()) {
         return cleanObject({
           success: false,
-          error: 'AUTOMATION_BRIDGE_UNAVAILABLE',
-          message: 'Unreal bridge is not available for Python template execution.'
+          error: 'INVALID_EDITOR_UTILITY_PATH',
+          message: 'run_editor_utility requires a widget or utility blueprint path.'
         });
       }
-
-      const response = await bridge.executeEditorFunction('RUN_PYTHON_TEMPLATE', {
-        templateName,
-        templateParams: extractPythonParams(argsTyped, {
-          path: argsTyped.path,
-          recursive: argsTyped.recursive,
-          className: argsTyped.className
-        })
-      }, { timeoutMs: typeof argsTyped.timeoutMs === 'number' ? argsTyped.timeoutMs : pythonFallback.timeoutMs });
-
-      return cleanObject({
-        ...response,
-        template: templateName,
-        pythonFallback: {
-          enabled: pythonFallback.enabled,
-          unsafeEnabled: pythonFallback.unsafeEnabled,
-          timeoutMs: pythonFallback.timeoutMs
-        }
+      return await executePythonTemplate(bridge, argsTyped, 'run_editor_utility', {
+        path: argsTyped.path
+      });
+    }
+    case 'validate_selected_assets': {
+      return await executePythonTemplate(bridge, argsTyped, 'validate_selected_assets', {
+        limit: argsTyped.limit
+      });
+    }
+    case 'audit_assets_in_path': {
+      if (!argsTyped.path?.trim()) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_ASSET_PATH',
+          message: 'audit_assets_in_path requires a content path.'
+        });
+      }
+      return await executePythonTemplate(bridge, argsTyped, 'audit_assets_in_path', {
+        path: argsTyped.path,
+        recursive: argsTyped.recursive,
+        className: argsTyped.className,
+        limit: argsTyped.limit
       });
     }
     case 'validate_assets': {

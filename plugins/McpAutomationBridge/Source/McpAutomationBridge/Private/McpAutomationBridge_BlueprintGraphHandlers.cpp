@@ -75,6 +75,33 @@ static TArray<FString> ParseBlueprintCommentTags(const FString& CommentText) {
   return Tags;
 }
 
+static TArray<TSharedPtr<FJsonValue>> SerializeBlueprintSubGraphs(
+    UEdGraphNode* Node) {
+  TArray<TSharedPtr<FJsonValue>> GraphsJson;
+  if (!Node) {
+    return GraphsJson;
+  }
+
+  TArray<UEdGraph*> SubGraphs;
+  Node->GetSubGraphs(SubGraphs);
+  for (UEdGraph* SubGraph : SubGraphs) {
+    if (!SubGraph) {
+      continue;
+    }
+    TSharedPtr<FJsonObject> GraphObj = MakeShared<FJsonObject>();
+    GraphObj->SetStringField(TEXT("graphName"), SubGraph->GetName());
+    GraphObj->SetStringField(TEXT("graphPath"), SubGraph->GetPathName());
+    GraphObj->SetStringField(TEXT("outerNodeId"), Node->NodeGuid.ToString());
+    GraphObj->SetStringField(TEXT("outerNodeName"), Node->GetName());
+    GraphObj->SetStringField(
+        TEXT("outerNodeTitle"),
+        Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+    GraphObj->SetNumberField(TEXT("nodeCount"), SubGraph->Nodes.Num());
+    GraphsJson.Add(MakeShared<FJsonValueObject>(GraphObj));
+  }
+  return GraphsJson;
+}
+
 static TSharedPtr<FJsonObject> SerializeBlueprintLink(UEdGraphPin* LinkedPin) {
   TSharedPtr<FJsonObject> LinkObj = MakeShared<FJsonObject>();
   if (!LinkedPin) {
@@ -460,7 +487,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
   auto SerializeNodeWithMembership =
       [&](UEdGraphNode* Node, const TMap<FGuid, TArray<FGuid>>& Membership,
-          bool bIncludePins, bool bIncludeConnectionSummary) {
+          bool bIncludePins, bool bIncludeConnectionSummary,
+          bool bIncludeSubGraphs) {
         TSharedPtr<FJsonObject> NodeObj = MakeShared<FJsonObject>();
         if (!Node) {
           return NodeObj;
@@ -494,6 +522,13 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
           }
         }
         NodeObj->SetArrayField(TEXT("commentGroupIds"), MembershipJson);
+        const TArray<TSharedPtr<FJsonValue>> SubGraphsJson =
+            SerializeBlueprintSubGraphs(Node);
+        NodeObj->SetBoolField(TEXT("hasSubGraphs"), SubGraphsJson.Num() > 0);
+        NodeObj->SetNumberField(TEXT("subGraphCount"), SubGraphsJson.Num());
+        if (bIncludeSubGraphs) {
+          NodeObj->SetArrayField(TEXT("subGraphs"), SubGraphsJson);
+        }
 
         int32 IncomingLinkCount = 0;
         int32 OutgoingLinkCount = 0;
@@ -1029,13 +1064,80 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     Payload->TryGetStringField(TEXT("fromPinName"), FromPinName);
     Payload->TryGetStringField(TEXT("toNodeId"), ToNodeId);
     Payload->TryGetStringField(TEXT("toPinName"), ToPinName);
+    if (FromNodeId.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("sourceNode"), FromNodeId);
+    }
+    if (FromNodeId.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("sourceNodeId"), FromNodeId);
+    }
+    if (ToNodeId.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("targetNode"), ToNodeId);
+    }
+    if (ToNodeId.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("targetNodeId"), ToNodeId);
+    }
+    if (FromPinName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("fromPin"), FromPinName);
+    }
+    if (FromPinName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("sourcePin"), FromPinName);
+    }
+    if (FromPinName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("sourcePinName"), FromPinName);
+    }
+    if (FromPinName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("outputPin"), FromPinName);
+    }
+    if (ToPinName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("toPin"), ToPinName);
+    }
+    if (ToPinName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("targetPin"), ToPinName);
+    }
+    if (ToPinName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("targetPinName"), ToPinName);
+    }
+    if (ToPinName.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("inputPin"), ToPinName);
+    }
+
+    if (FromNodeId.Contains(TEXT(".")) && FromPinName.IsEmpty()) {
+      FString ParsedNodeId;
+      FString ParsedPinName;
+      if (FromNodeId.Split(TEXT("."), &ParsedNodeId, &ParsedPinName) &&
+          !ParsedNodeId.IsEmpty() && !ParsedPinName.IsEmpty()) {
+        FromNodeId = ParsedNodeId;
+        FromPinName = ParsedPinName;
+      }
+    }
+    if (ToNodeId.Contains(TEXT(".")) && ToPinName.IsEmpty()) {
+      FString ParsedNodeId;
+      FString ParsedPinName;
+      if (ToNodeId.Split(TEXT("."), &ParsedNodeId, &ParsedPinName) &&
+          !ParsedNodeId.IsEmpty() && !ParsedPinName.IsEmpty()) {
+        ToNodeId = ParsedNodeId;
+        ToPinName = ParsedPinName;
+      }
+    }
+
+    if (FromNodeId.IsEmpty() || ToNodeId.IsEmpty() || FromPinName.IsEmpty() ||
+        ToPinName.IsEmpty()) {
+      SendAutomationError(
+          RequestingSocket, RequestId,
+          TEXT("connect_pins requires source and target node/pin values. Accepted shapes: fromNodeId/fromPinName/toNodeId/toPinName, sourceNode/sourcePin/targetNode/targetPin, or Node.Pin shorthand."),
+          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
 
     UEdGraphNode *FromNode = FindNodeByIdOrName(FromNodeId);
     UEdGraphNode *ToNode = FindNodeByIdOrName(ToNodeId);
 
     if (!FromNode || !ToNode) {
+      const FString ErrorMessage = FString::Printf(
+          TEXT("Could not find source or target node. Resolved source='%s', target='%s'."),
+          *FromNodeId, *ToNodeId);
       SendAutomationError(RequestingSocket, RequestId,
-                          TEXT("Could not find source or target node."),
+                          ErrorMessage,
                           TEXT("NODE_NOT_FOUND"));
       return true;
     }
@@ -1054,8 +1156,11 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     UEdGraphPin *ToPin = ToNode->FindPin(*ToPinClean);
 
     if (!FromPin || !ToPin) {
+      const FString ErrorMessage = FString::Printf(
+          TEXT("Could not find source or target pin. Resolved source pin='%s' on node '%s', target pin='%s' on node '%s'."),
+          *FromPinClean, *FromNode->GetName(), *ToPinClean, *ToNode->GetName());
       SendAutomationError(RequestingSocket, RequestId,
-                          TEXT("Could not find source or target pin."),
+                          ErrorMessage,
                           TEXT("PIN_NOT_FOUND"));
       return true;
     }
@@ -1084,7 +1189,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
         continue;
 
       NodesArray.Add(MakeShared<FJsonValueObject>(
-          SerializeNodeWithMembership(Node, Membership, true, true)));
+          SerializeNodeWithMembership(Node, Membership, true, true, true)));
     }
 
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
@@ -1137,7 +1242,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
       TArray<TSharedPtr<FJsonValue>> GroupNodesJson;
       for (UEdGraphNode* GroupNode : CollectCommentGroupNodes(CommentNode)) {
         GroupNodesJson.Add(MakeShared<FJsonValueObject>(
-            SerializeNodeWithMembership(GroupNode, Membership, false, true)));
+            SerializeNodeWithMembership(GroupNode, Membership, false, true,
+                                        true)));
       }
       GroupObj->SetArrayField(TEXT("nodes"), GroupNodesJson);
       GroupObj->SetNumberField(TEXT("nodeCount"), GroupNodesJson.Num());
@@ -1152,6 +1258,199 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
     SendAutomationResponse(RequestingSocket, RequestId, true,
                            TEXT("Comment groups retrieved."), Result);
+    return true;
+  } else if (SubAction == TEXT("find_nodes")) {
+    const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
+    FString Query;
+    FString CommentTitle;
+    FString CommentTag;
+    FString NodeTitleFilter;
+    FString NodeTypeFilter;
+    Payload->TryGetStringField(TEXT("query"), Query);
+    Payload->TryGetStringField(TEXT("commentTitle"), CommentTitle);
+    Payload->TryGetStringField(TEXT("commentTag"), CommentTag);
+    Payload->TryGetStringField(TEXT("nodeTitle"), NodeTitleFilter);
+    Payload->TryGetStringField(TEXT("nodeTypeFilter"), NodeTypeFilter);
+    bool bIncludePins = false;
+    Payload->TryGetBoolField(TEXT("includePins"), bIncludePins);
+    bool bIncludeSubGraphs = false;
+    Payload->TryGetBoolField(TEXT("includeSubGraphs"), bIncludeSubGraphs);
+
+    const FString NormalizedQuery = Query.TrimStartAndEnd().ToLower();
+    const FString NormalizedCommentTitle = CommentTitle.TrimStartAndEnd().ToLower();
+    const FString NormalizedCommentTag = CommentTag.TrimStartAndEnd().ToLower();
+    const FString NormalizedNodeTitle = NodeTitleFilter.TrimStartAndEnd().ToLower();
+    const FString NormalizedNodeType = NodeTypeFilter.TrimStartAndEnd().ToLower();
+
+    TArray<UEdGraph*> SearchGraphs;
+    SearchGraphs.Add(TargetGraph);
+    if (bIncludeSubGraphs) {
+      TArray<UEdGraph*> AllGraphs;
+      Blueprint->GetAllGraphs(AllGraphs);
+      for (UEdGraph* Graph : AllGraphs) {
+        if (Graph && Graph != TargetGraph) {
+          SearchGraphs.Add(Graph);
+        }
+      }
+    }
+
+    TMap<FGuid, UEdGraphNode_Comment*> CommentById;
+    for (UEdGraph* SearchGraph : SearchGraphs) {
+      if (!SearchGraph) {
+        continue;
+      }
+      for (UEdGraphNode* Node : SearchGraph->Nodes) {
+        if (UEdGraphNode_Comment* CommentNode =
+                Cast<UEdGraphNode_Comment>(Node)) {
+          CommentById.Add(CommentNode->NodeGuid, CommentNode);
+        }
+      }
+    }
+
+    auto BuildMembershipForGraph = [&](UEdGraph* SearchGraph) {
+      if (SearchGraph == TargetGraph) {
+        return Membership;
+      }
+
+      TMap<FGuid, TArray<FGuid>> GraphMembership;
+      TArray<UEdGraphNode_Comment*> CommentNodes;
+      for (UEdGraphNode* Node : SearchGraph->Nodes) {
+        if (UEdGraphNode_Comment* CommentNode =
+                Cast<UEdGraphNode_Comment>(Node)) {
+          CommentNodes.Add(CommentNode);
+        }
+      }
+
+      for (UEdGraphNode_Comment* CommentNode : CommentNodes) {
+        if (!CommentNode) {
+          continue;
+        }
+        for (UEdGraphNode* Node : SearchGraph->Nodes) {
+          if (IsNodeWithinComment(Node, CommentNode)) {
+            GraphMembership.FindOrAdd(Node->NodeGuid).Add(
+                CommentNode->NodeGuid);
+          }
+        }
+      }
+      return GraphMembership;
+    };
+
+    auto NodeMatches = [&](UEdGraphNode* Node,
+                           const TMap<FGuid, TArray<FGuid>>& LocalMembership) {
+      if (!Node) {
+        return false;
+      }
+      const FString NodeTitle =
+          Node->GetNodeTitle(ENodeTitleType::ListView).ToString();
+      const FString NodeType = Node->GetClass()->GetName();
+      const FString NodeComment = Node->NodeComment;
+      if (!NormalizedNodeTitle.IsEmpty() &&
+          !NodeTitle.ToLower().Contains(NormalizedNodeTitle)) {
+        return false;
+      }
+      if (!NormalizedNodeType.IsEmpty() &&
+          !NodeType.ToLower().Contains(NormalizedNodeType)) {
+        return false;
+      }
+      if (!NormalizedCommentTitle.IsEmpty() || !NormalizedCommentTag.IsEmpty()) {
+        bool bMatchedGroup = false;
+        if (const TArray<FGuid>* GroupIds = LocalMembership.Find(Node->NodeGuid)) {
+          for (const FGuid& GroupId : *GroupIds) {
+            UEdGraphNode_Comment* const* CommentNodePtr = CommentById.Find(GroupId);
+            if (!CommentNodePtr || !*CommentNodePtr) {
+              continue;
+            }
+            const FString GroupTitle =
+                (*CommentNodePtr)->GetNodeTitle(ENodeTitleType::ListView)
+                    .ToString()
+                    .ToLower();
+            const TArray<FString> Tags =
+                ParseBlueprintCommentTags((*CommentNodePtr)->NodeComment);
+            const bool bTitleOk =
+                NormalizedCommentTitle.IsEmpty() ||
+                GroupTitle.Contains(NormalizedCommentTitle);
+            bool bTagOk = NormalizedCommentTag.IsEmpty();
+            if (!bTagOk) {
+              for (const FString& Tag : Tags) {
+                if (Tag.ToLower().Contains(NormalizedCommentTag)) {
+                  bTagOk = true;
+                  break;
+                }
+              }
+            }
+            if (bTitleOk && bTagOk) {
+              bMatchedGroup = true;
+              break;
+            }
+          }
+        }
+        if (!bMatchedGroup) {
+          return false;
+        }
+      }
+      if (!NormalizedQuery.IsEmpty()) {
+        FString CombinedHaystack =
+            FString::Printf(TEXT("%s %s %s %s"), *NodeTitle, *NodeType,
+                            *NodeComment, *Node->GetName())
+                .ToLower();
+        if (!CombinedHaystack.Contains(NormalizedQuery)) {
+          bool bFoundInGroup = false;
+          if (const TArray<FGuid>* GroupIds = LocalMembership.Find(Node->NodeGuid)) {
+            for (const FGuid& GroupId : *GroupIds) {
+              UEdGraphNode_Comment* const* CommentNodePtr = CommentById.Find(GroupId);
+              if (!CommentNodePtr || !*CommentNodePtr) {
+                continue;
+              }
+              FString GroupHaystack =
+                  FString::Printf(TEXT("%s %s"),
+                                  *(*CommentNodePtr)
+                                       ->GetNodeTitle(ENodeTitleType::ListView)
+                                       .ToString(),
+                                  *(*CommentNodePtr)->NodeComment)
+                      .ToLower();
+              if (GroupHaystack.Contains(NormalizedQuery)) {
+                bFoundInGroup = true;
+                break;
+              }
+            }
+          }
+          if (!bFoundInGroup) {
+            return false;
+          }
+        }
+      }
+      return true;
+    };
+
+    TArray<TSharedPtr<FJsonValue>> MatchingNodes;
+    for (UEdGraph* SearchGraph : SearchGraphs) {
+      if (!SearchGraph) {
+        continue;
+      }
+      const TMap<FGuid, TArray<FGuid>> LocalMembership =
+          BuildMembershipForGraph(SearchGraph);
+      for (UEdGraphNode* Node : SearchGraph->Nodes) {
+        if (!NodeMatches(Node, LocalMembership)) {
+          continue;
+        }
+        TSharedPtr<FJsonObject> NodeObj = SerializeNodeWithMembership(
+            Node, LocalMembership, bIncludePins, true, true);
+        NodeObj->SetStringField(TEXT("graphName"), SearchGraph->GetName());
+        NodeObj->SetStringField(TEXT("graphPath"), SearchGraph->GetPathName());
+        NodeObj->SetBoolField(TEXT("isNestedGraph"), SearchGraph != TargetGraph);
+        MatchingNodes.Add(MakeShared<FJsonValueObject>(NodeObj));
+      }
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("graphName"), TargetGraph->GetName());
+    Result->SetStringField(TEXT("query"), Query);
+    Result->SetBoolField(TEXT("includeSubGraphs"), bIncludeSubGraphs);
+    Result->SetArrayField(TEXT("nodes"), MatchingNodes);
+    Result->SetNumberField(TEXT("count"), MatchingNodes.Num());
+    AddAssetVerification(Result, Blueprint);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Matching nodes retrieved."), Result);
     return true;
   } else if (SubAction == TEXT("break_pin_links")) {
     const FScopedTransaction Transaction(
@@ -1323,6 +1622,140 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
                                    : TEXT("Subgraph disconnected."),
                            Result);
     return true;
+  } else if (SubAction == TEXT("disable_subgraph")) {
+    bool bDryRun = false;
+    Payload->TryGetBoolField(TEXT("dryRun"), bDryRun);
+    FString Reason;
+    FString StatusTag = TEXT("disabled");
+    FString CommentNodeId;
+    Payload->TryGetStringField(TEXT("reason"), Reason);
+    Payload->TryGetStringField(TEXT("statusTag"), StatusTag);
+    Payload->TryGetStringField(TEXT("commentNodeId"), CommentNodeId);
+
+    TSet<UEdGraphNode*> SelectedNodes;
+    UEdGraphNode_Comment* TargetCommentNode = nullptr;
+    if (!CommentNodeId.IsEmpty()) {
+      TargetCommentNode =
+          Cast<UEdGraphNode_Comment>(FindNodeByIdOrName(CommentNodeId));
+      if (TargetCommentNode) {
+        for (UEdGraphNode* Node : CollectCommentGroupNodes(TargetCommentNode)) {
+          if (Node) {
+            SelectedNodes.Add(Node);
+          }
+        }
+      }
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* NodeIdValues = nullptr;
+    if (Payload->TryGetArrayField(TEXT("nodeIds"), NodeIdValues) &&
+        NodeIdValues) {
+      for (const TSharedPtr<FJsonValue>& Value : *NodeIdValues) {
+        if (!Value.IsValid() || Value->Type != EJson::String) {
+          continue;
+        }
+        if (UEdGraphNode* Node = FindNodeByIdOrName(Value->AsString())) {
+          SelectedNodes.Add(Node);
+        }
+      }
+    }
+
+    if (SelectedNodes.Num() == 0) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("disable_subgraph requires commentNodeId or nodeIds."),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    TSet<FString> SeenLinks;
+    TArray<TSharedPtr<FJsonValue>> LinksJson;
+    TArray<TPair<UEdGraphPin*, UEdGraphPin*>> PendingBreaks;
+    for (UEdGraphNode* Node : SelectedNodes) {
+      if (!Node) {
+        continue;
+      }
+      for (UEdGraphPin* Pin : Node->Pins) {
+        if (!Pin) {
+          continue;
+        }
+        for (UEdGraphPin* LinkedPin : Pin->LinkedTo) {
+          UEdGraphNode* LinkedNode =
+              LinkedPin ? LinkedPin->GetOwningNode() : nullptr;
+          if (!LinkedPin || !LinkedNode || SelectedNodes.Contains(LinkedNode)) {
+            continue;
+          }
+          const FString LinkKey = FString::Printf(
+              TEXT("%s:%s->%s:%s"), *Node->NodeGuid.ToString(),
+              *Pin->PinName.ToString(), *LinkedNode->NodeGuid.ToString(),
+              *LinkedPin->PinName.ToString());
+          if (SeenLinks.Contains(LinkKey)) {
+            continue;
+          }
+          SeenLinks.Add(LinkKey);
+          TSharedPtr<FJsonObject> LinkObj = MakeShared<FJsonObject>();
+          LinkObj->SetStringField(TEXT("fromNodeId"), Node->NodeGuid.ToString());
+          LinkObj->SetStringField(TEXT("fromPinName"), Pin->PinName.ToString());
+          LinkObj->SetStringField(TEXT("toNodeId"), LinkedNode->NodeGuid.ToString());
+          LinkObj->SetStringField(TEXT("toPinName"), LinkedPin->PinName.ToString());
+          LinksJson.Add(MakeShared<FJsonValueObject>(LinkObj));
+          PendingBreaks.Add(TPair<UEdGraphPin*, UEdGraphPin*>(Pin, LinkedPin));
+        }
+      }
+    }
+
+    FString UpdatedComment;
+    if (TargetCommentNode) {
+      UpdatedComment = TargetCommentNode->NodeComment;
+      const FString StatusLine = FString::Printf(TEXT("status: %s"), *StatusTag);
+      if (!UpdatedComment.Contains(StatusLine, ESearchCase::IgnoreCase)) {
+        UpdatedComment += UpdatedComment.IsEmpty() ? TEXT("") : TEXT("\n");
+        UpdatedComment += StatusLine;
+      }
+      if (!Reason.TrimStartAndEnd().IsEmpty()) {
+        UpdatedComment += FString::Printf(TEXT("\nreason: %s"), *Reason);
+      }
+    }
+
+    if (!bDryRun) {
+      const FScopedTransaction Transaction(
+          FText::FromString(TEXT("Disable Blueprint Subgraph")));
+      Blueprint->Modify();
+      TargetGraph->Modify();
+      for (const TPair<UEdGraphPin*, UEdGraphPin*>& Link : PendingBreaks) {
+        if (Link.Key && Link.Value) {
+          Link.Key->GetOwningNode()->Modify();
+          Link.Value->GetOwningNode()->Modify();
+          TargetGraph->GetSchema()->BreakSinglePinLink(Link.Key, Link.Value);
+        }
+      }
+      if (TargetCommentNode) {
+        TargetCommentNode->Modify();
+        TargetCommentNode->NodeComment = UpdatedComment;
+      }
+      if (PendingBreaks.Num() > 0 || TargetCommentNode) {
+        FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+      }
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("graphName"), TargetGraph->GetName());
+    Result->SetBoolField(TEXT("dryRun"), bDryRun);
+    Result->SetStringField(TEXT("statusTag"), StatusTag);
+    Result->SetStringField(TEXT("reason"), Reason);
+    Result->SetNumberField(TEXT("selectedNodeCount"), SelectedNodes.Num());
+    Result->SetArrayField(TEXT("disconnectedLinks"), LinksJson);
+    Result->SetNumberField(TEXT("disconnectCount"), LinksJson.Num());
+    if (TargetCommentNode) {
+      Result->SetStringField(TEXT("commentNodeId"),
+                             TargetCommentNode->NodeGuid.ToString());
+      Result->SetStringField(TEXT("updatedComment"),
+                             bDryRun ? UpdatedComment : TargetCommentNode->NodeComment);
+    }
+    AddAssetVerification(Result, Blueprint);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           bDryRun ? TEXT("Subgraph disable preview generated.")
+                                   : TEXT("Subgraph disabled."),
+                           Result);
+    return true;
   } else if (SubAction == TEXT("duplicate_subgraph")) {
     TSet<UEdGraphNode*> SelectedNodes;
     FString CommentNodeId;
@@ -1424,7 +1857,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     TArray<TSharedPtr<FJsonValue>> ImportedNodesJson;
     for (UEdGraphNode* ImportedNode : SortedImportedNodes) {
       ImportedNodesJson.Add(MakeShared<FJsonValueObject>(
-          SerializeNodeWithMembership(ImportedNode, Membership, true, true)));
+          SerializeNodeWithMembership(ImportedNode, Membership, true, true,
+                                      true)));
     }
 
     FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
@@ -1581,7 +2015,7 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     if (TargetNode) {
       const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
       TSharedPtr<FJsonObject> Result =
-          SerializeNodeWithMembership(TargetNode, Membership, true, true);
+          SerializeNodeWithMembership(TargetNode, Membership, true, true, true);
       AddAssetVerification(Result, Blueprint);
 
       SendAutomationResponse(RequestingSocket, RequestId, true,
@@ -1595,12 +2029,13 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
     TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
     Result->SetStringField(TEXT("graphName"), TargetGraph->GetName());
+    Result->SetStringField(TEXT("graphPath"), TargetGraph->GetPathName());
     Result->SetNumberField(TEXT("nodeCount"), TargetGraph->Nodes.Num());
 
     TArray<TSharedPtr<FJsonValue>> Nodes;
     for (UEdGraphNode *Node : TargetGraph->Nodes) {
       Nodes.Add(MakeShared<FJsonValueObject>(
-          SerializeNodeWithMembership(Node, Membership, true, true)));
+          SerializeNodeWithMembership(Node, Membership, true, true, true)));
     }
 
     TArray<TSharedPtr<FJsonValue>> CommentGroups;
@@ -1615,7 +2050,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
         TArray<TSharedPtr<FJsonValue>> GroupNodes;
         for (UEdGraphNode* GroupNode : CollectCommentGroupNodes(CommentNode)) {
           GroupNodes.Add(MakeShared<FJsonValueObject>(
-              SerializeNodeWithMembership(GroupNode, Membership, false, true)));
+              SerializeNodeWithMembership(GroupNode, Membership, false, true,
+                                          true)));
         }
         GroupObj->SetArrayField(TEXT("nodes"), GroupNodes);
         CommentGroups.Add(MakeShared<FJsonValueObject>(GroupObj));
@@ -1628,6 +2064,40 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
     SendAutomationResponse(RequestingSocket, RequestId, true,
                            TEXT("Graph details retrieved."), Result);
+    return true;
+  } else if (SubAction == TEXT("list_graphs")) {
+    TArray<UEdGraph*> AllGraphs;
+    Blueprint->GetAllGraphs(AllGraphs);
+    TArray<TSharedPtr<FJsonValue>> GraphsJson;
+    for (UEdGraph* Graph : AllGraphs) {
+      if (!Graph) {
+        continue;
+      }
+      TSharedPtr<FJsonObject> GraphObj = MakeShared<FJsonObject>();
+      GraphObj->SetStringField(TEXT("graphName"), Graph->GetName());
+      GraphObj->SetStringField(TEXT("graphPath"), Graph->GetPathName());
+      GraphObj->SetNumberField(TEXT("nodeCount"), Graph->Nodes.Num());
+
+      UEdGraphNode* OwningNode = Cast<UEdGraphNode>(Graph->GetOuter());
+      GraphObj->SetBoolField(TEXT("isNestedGraph"), OwningNode != nullptr);
+      if (OwningNode) {
+        GraphObj->SetStringField(TEXT("outerNodeId"),
+                                 OwningNode->NodeGuid.ToString());
+        GraphObj->SetStringField(TEXT("outerNodeName"), OwningNode->GetName());
+        GraphObj->SetStringField(
+            TEXT("outerNodeTitle"),
+            OwningNode->GetNodeTitle(ENodeTitleType::ListView).ToString());
+      }
+      GraphsJson.Add(MakeShared<FJsonValueObject>(GraphObj));
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetArrayField(TEXT("graphs"), GraphsJson);
+    Result->SetNumberField(TEXT("graphCount"), GraphsJson.Num());
+    Result->SetStringField(TEXT("selectedGraphName"), TargetGraph->GetName());
+    AddAssetVerification(Result, Blueprint);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Graphs retrieved."), Result);
     return true;
   } else if (SubAction == TEXT("get_pin_details")) {
     FString NodeId;
@@ -1679,6 +2149,13 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     FString ExpectedType;
     FString MemberName;
     FString MemberClass;
+    FString CustomEventName;
+    FString SectionLookupFunctionName;
+    FString SectionLookupClass;
+    FString PropertyLookupFunctionName;
+    FString PropertyLookupClass;
+    FString BindFunctionName;
+    FString BindClass;
     Payload->TryGetStringField(TEXT("section"), SectionName);
     Payload->TryGetStringField(TEXT("propertyName"), PropertyKey);
     if (PropertyKey.IsEmpty()) {
@@ -1690,6 +2167,15 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
       Payload->TryGetStringField(TEXT("applyFunction"), MemberName);
     }
     Payload->TryGetStringField(TEXT("memberClass"), MemberClass);
+    Payload->TryGetStringField(TEXT("customEventName"), CustomEventName);
+    Payload->TryGetStringField(TEXT("sectionLookupFunction"),
+                               SectionLookupFunctionName);
+    Payload->TryGetStringField(TEXT("sectionLookupClass"), SectionLookupClass);
+    Payload->TryGetStringField(TEXT("propertyLookupFunction"),
+                               PropertyLookupFunctionName);
+    Payload->TryGetStringField(TEXT("propertyLookupClass"), PropertyLookupClass);
+    Payload->TryGetStringField(TEXT("bindFunction"), BindFunctionName);
+    Payload->TryGetStringField(TEXT("bindClass"), BindClass);
 
     if (SectionName.IsEmpty() || PropertyKey.IsEmpty()) {
       SendAutomationError(RequestingSocket, RequestId,
@@ -1709,13 +2195,14 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     TargetGraph->Modify();
 
     TArray<TSharedPtr<FJsonValue>> CreatedNodes;
+    TArray<TSharedPtr<FJsonValue>> AutoConnections;
 
     FGraphNodeCreator<UEdGraphNode_Comment> CommentCreator(*TargetGraph);
     UEdGraphNode_Comment* CommentNode = CommentCreator.CreateNode(false);
     CommentNode->NodePosX = static_cast<int32>(X);
     CommentNode->NodePosY = static_cast<int32>(Y);
-    CommentNode->NodeWidth = 650.0f;
-    CommentNode->NodeHeight = 260.0f;
+    CommentNode->NodeWidth = 1800.0f;
+    CommentNode->NodeHeight = 420.0f;
     CommentNode->NodeComment = FString::Printf(
         TEXT("Template: config-binding\nsection: %s\nproperty: %s\ntype: %s\ntags: config-binding,%s"),
         *SectionName, *PropertyKey,
@@ -1725,15 +2212,16 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
     const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
     CreatedNodes.Add(MakeShared<FJsonValueObject>(
-        SerializeNodeWithMembership(CommentNode, Membership, false, false)));
+        SerializeNodeWithMembership(CommentNode, Membership, false, false,
+                                    true)));
 
     auto CreateLiteralNode = [&](const FString& LiteralValue,
                                  const FString& NodeLabel, double NodeX,
-                                 double NodeY) {
+                                 double NodeY) -> UK2Node_CallFunction* {
       UFunction* LiteralFunction = ResolveFunctionForBinding(
           TEXT("UKismetSystemLibrary"), TEXT("MakeLiteralString"));
       if (!LiteralFunction) {
-        return;
+        return nullptr;
       }
       FGraphNodeCreator<UK2Node_CallFunction> NodeCreator(*TargetGraph);
       UK2Node_CallFunction* LiteralNode = NodeCreator.CreateNode(false);
@@ -1747,25 +2235,268 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
       }
       CreatedNodes.Add(MakeShared<FJsonValueObject>(
           SerializeNodeWithMembership(LiteralNode, BuildCommentMembership(),
-                                      true, true)));
+                                      true, true, true)));
+      return LiteralNode;
     };
 
-    CreateLiteralNode(SectionName, TEXT("Section literal"), X + 32.0, Y + 64.0);
-    CreateLiteralNode(PropertyKey, TEXT("Property literal"), X + 32.0,
-                      Y + 152.0);
+    auto CreateCallNode = [&](const FString& FunctionClass,
+                              const FString& FunctionName,
+                              const FString& NodeLabel, double NodeX,
+                              double NodeY) -> UK2Node_CallFunction* {
+      if (UFunction* Function =
+              ResolveFunctionForBinding(FunctionClass, FunctionName)) {
+        FGraphNodeCreator<UK2Node_CallFunction> NodeCreator(*TargetGraph);
+        UK2Node_CallFunction* CallNode = NodeCreator.CreateNode(false);
+        CallNode->SetFromFunction(Function);
+        CallNode->NodePosX = static_cast<int32>(NodeX);
+        CallNode->NodePosY = static_cast<int32>(NodeY);
+        CallNode->NodeComment = NodeLabel;
+        NodeCreator.Finalize();
+        CreatedNodes.Add(MakeShared<FJsonValueObject>(
+            SerializeNodeWithMembership(CallNode, BuildCommentMembership(), true,
+                                        true, true)));
+        return CallNode;
+      }
+      return nullptr;
+    };
 
-    if (UFunction* ApplyFunction =
-            ResolveFunctionForBinding(MemberClass, MemberName)) {
-      FGraphNodeCreator<UK2Node_CallFunction> ApplyCreator(*TargetGraph);
-      UK2Node_CallFunction* ApplyNode = ApplyCreator.CreateNode(false);
-      ApplyNode->SetFromFunction(ApplyFunction);
-      ApplyNode->NodePosX = static_cast<int32>(X + 320.0);
-      ApplyNode->NodePosY = static_cast<int32>(Y + 104.0);
-      ApplyNode->NodeComment = TEXT("Apply/config target");
-      ApplyCreator.Finalize();
-      CreatedNodes.Add(MakeShared<FJsonValueObject>(
-          SerializeNodeWithMembership(ApplyNode, BuildCommentMembership(),
-                                      true, true)));
+    auto FindPinByNames = [&](UEdGraphNode* Node,
+                              EEdGraphPinDirection Direction,
+                              const TArray<FString>& PreferredNames)
+        -> UEdGraphPin* {
+      if (!Node) {
+        return nullptr;
+      }
+      for (const FString& PreferredName : PreferredNames) {
+        for (UEdGraphPin* Pin : Node->Pins) {
+          if (!Pin || Pin->Direction != Direction) {
+            continue;
+          }
+          if (Pin->PinName.ToString().Equals(PreferredName,
+                                             ESearchCase::IgnoreCase)) {
+            return Pin;
+          }
+        }
+      }
+      return nullptr;
+    };
+
+    auto FindFirstPin = [&](UEdGraphNode* Node, EEdGraphPinDirection Direction,
+                            bool bExecPinsOnly,
+                            bool bObjectPinsPreferred) -> UEdGraphPin* {
+      if (!Node) {
+        return nullptr;
+      }
+      for (UEdGraphPin* Pin : Node->Pins) {
+        if (!Pin || Pin->Direction != Direction) {
+          continue;
+        }
+        if (bExecPinsOnly &&
+            Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec) {
+          continue;
+        }
+        if (!bExecPinsOnly && bObjectPinsPreferred &&
+            Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Object &&
+            Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Interface &&
+            Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Class) {
+          continue;
+        }
+        return Pin;
+      }
+      if (!bExecPinsOnly && bObjectPinsPreferred) {
+        return FindFirstPin(Node, Direction, false, false);
+      }
+      return nullptr;
+    };
+
+    auto FindLiteralOutputPin = [&](UEdGraphNode* Node) -> UEdGraphPin* {
+      return FindPinByNames(Node, EGPD_Output, {TEXT("ReturnValue")});
+    };
+
+    auto ConnectPinsIfPossible = [&](UEdGraphPin* OutputPin,
+                                     UEdGraphPin* InputPin,
+                                     const FString& Label) -> bool {
+      if (!OutputPin || !InputPin) {
+        return false;
+      }
+      if (TargetGraph->GetSchema()->TryCreateConnection(OutputPin, InputPin)) {
+        TSharedPtr<FJsonObject> LinkObj = MakeShared<FJsonObject>();
+        LinkObj->SetStringField(TEXT("label"), Label);
+        LinkObj->SetStringField(TEXT("fromNodeId"),
+                                OutputPin->GetOwningNode()->NodeGuid.ToString());
+        LinkObj->SetStringField(TEXT("fromPinName"),
+                                OutputPin->PinName.ToString());
+        LinkObj->SetStringField(TEXT("toNodeId"),
+                                InputPin->GetOwningNode()->NodeGuid.ToString());
+        LinkObj->SetStringField(TEXT("toPinName"),
+                                InputPin->PinName.ToString());
+        AutoConnections.Add(MakeShared<FJsonValueObject>(LinkObj));
+        return true;
+      }
+      return false;
+    };
+
+    auto WireLiteralIntoNode = [&](UK2Node_CallFunction* LiteralNode,
+                                   UEdGraphNode* TargetNode,
+                                   const TArray<FString>& PreferredPins,
+                                   const FString& Label) {
+      ConnectPinsIfPossible(FindLiteralOutputPin(LiteralNode),
+                            FindPinByNames(TargetNode, EGPD_Input,
+                                           PreferredPins),
+                            Label);
+    };
+
+    auto FindPrimaryObjectOutput = [&](UEdGraphNode* Node) -> UEdGraphPin* {
+      if (UEdGraphPin* PreferredPin = FindPinByNames(
+              Node, EGPD_Output,
+              {TEXT("AsConfigPropertySection"), TEXT("AsConfigProperty"),
+               TEXT("ReturnValue"), TEXT("Object"), TEXT("Value")})) {
+        return PreferredPin;
+      }
+      return FindFirstPin(Node, EGPD_Output, false, true);
+    };
+
+    auto FindPrimaryObjectInput = [&](UEdGraphNode* Node) -> UEdGraphPin* {
+      if (UEdGraphPin* PreferredPin = FindPinByNames(
+              Node, EGPD_Input,
+              {TEXT("Object"), TEXT("Target"), TEXT("Property"),
+               TEXT("ConfigProperty"), TEXT("Section"),
+               TEXT("ConfigSection"), TEXT("InputObject")})) {
+        return PreferredPin;
+      }
+      return FindFirstPin(Node, EGPD_Input, false, true);
+    };
+
+    auto WireExecChain = [&](UEdGraphNode* FromNode, UEdGraphNode* ToNode,
+                             const FString& Label) {
+      ConnectPinsIfPossible(FindFirstPin(FromNode, EGPD_Output, true, false),
+                            FindFirstPin(ToNode, EGPD_Input, true, false),
+                            Label);
+    };
+
+    const FString DefaultEventName = FString::Printf(
+        TEXT("Apply_%s_%s"), *SectionName.Replace(TEXT("/"), TEXT("_")),
+        *PropertyKey.Replace(TEXT("/"), TEXT("_")));
+    UK2Node_CallFunction* SectionLiteralNode =
+        CreateLiteralNode(SectionName, TEXT("Section literal"), X + 40.0,
+                          Y + 84.0);
+    UK2Node_CallFunction* PropertyLiteralNode =
+        CreateLiteralNode(PropertyKey, TEXT("Property literal"), X + 40.0,
+                          Y + 184.0);
+    UK2Node_CallFunction* TypeLiteralNode =
+        ExpectedType.IsEmpty()
+            ? nullptr
+            : CreateLiteralNode(ExpectedType, TEXT("Type literal"), X + 40.0,
+                                Y + 284.0);
+
+    FGraphNodeCreator<UK2Node_CustomEvent> EventCreator(*TargetGraph);
+    UK2Node_CustomEvent* EventNode = EventCreator.CreateNode(false);
+    EventNode->CustomFunctionName =
+        FName(*(CustomEventName.IsEmpty() ? DefaultEventName : CustomEventName));
+    EventNode->NodePosX = static_cast<int32>(X + 260.0);
+    EventNode->NodePosY = static_cast<int32>(Y + 84.0);
+    EventNode->NodeComment = TEXT("Config binding entry point");
+    EventCreator.Finalize();
+    CreatedNodes.Add(MakeShared<FJsonValueObject>(SerializeNodeWithMembership(
+        EventNode, BuildCommentMembership(), true, true, true)));
+
+    UK2Node_CallFunction* SectionLookupNode = CreateCallNode(
+        SectionLookupClass, SectionLookupFunctionName, TEXT("Section lookup"),
+        X + 520.0, Y + 32.0);
+    UK2Node_CallFunction* PropertyLookupNode = CreateCallNode(
+        PropertyLookupClass, PropertyLookupFunctionName,
+        TEXT("Property lookup"), X + 800.0, Y + 32.0);
+
+    UK2Node_DynamicCast* CastNode = nullptr;
+    if (UClass* CastTargetClass = ResolveUClass(ExpectedType)) {
+      FGraphNodeCreator<UK2Node_DynamicCast> CastCreator(*TargetGraph);
+      CastNode = CastCreator.CreateNode(false);
+      CastNode->TargetType = CastTargetClass;
+      CastNode->NodePosX = static_cast<int32>(X + 1080.0);
+      CastNode->NodePosY = static_cast<int32>(Y + 32.0);
+      CastNode->NodeComment = TEXT("Config property cast");
+      CastCreator.Finalize();
+      CreatedNodes.Add(MakeShared<FJsonValueObject>(SerializeNodeWithMembership(
+          CastNode, BuildCommentMembership(), true, true, true)));
+    }
+
+    UK2Node_CallFunction* BindNode = CreateCallNode(
+        BindClass, BindFunctionName, TEXT("Bind OnPropertyValueChanged"),
+        X + 1360.0, Y + 32.0);
+    UK2Node_CallFunction* ApplyNode = CreateCallNode(
+        MemberClass, MemberName, TEXT("Apply/config target"), X + 1640.0,
+        Y + 32.0);
+
+    WireLiteralIntoNode(SectionLiteralNode, SectionLookupNode,
+                        {TEXT("Section"), TEXT("SectionName"),
+                         TEXT("ConfigSection"), TEXT("Name"), TEXT("Key")},
+                        TEXT("section-literal"));
+    WireLiteralIntoNode(PropertyLiteralNode, PropertyLookupNode,
+                        {TEXT("Property"), TEXT("PropertyName"), TEXT("Key"),
+                         TEXT("Name")},
+                        TEXT("property-literal"));
+    WireLiteralIntoNode(SectionLiteralNode, ApplyNode,
+                        {TEXT("Section"), TEXT("SectionName")},
+                        TEXT("section-to-apply"));
+    WireLiteralIntoNode(PropertyLiteralNode, ApplyNode,
+                        {TEXT("Property"), TEXT("PropertyName"), TEXT("Key")},
+                        TEXT("property-to-apply"));
+    WireLiteralIntoNode(TypeLiteralNode, ApplyNode,
+                        {TEXT("Type"), TEXT("ExpectedType")},
+                        TEXT("type-to-apply"));
+    WireLiteralIntoNode(TypeLiteralNode, BindNode,
+                        {TEXT("Type"), TEXT("ExpectedType")},
+                        TEXT("type-to-bind"));
+
+    WireExecChain(EventNode, SectionLookupNode, TEXT("event-to-section-lookup"));
+    WireExecChain(SectionLookupNode, PropertyLookupNode,
+                  TEXT("section-lookup-to-property-lookup"));
+    WireExecChain(PropertyLookupNode, BindNode,
+                  TEXT("property-lookup-to-bind"));
+    WireExecChain(BindNode, ApplyNode, TEXT("bind-to-apply"));
+    if (!SectionLookupNode && PropertyLookupNode) {
+      WireExecChain(EventNode, PropertyLookupNode,
+                    TEXT("event-to-property-lookup"));
+    }
+    if (!SectionLookupNode && !PropertyLookupNode && BindNode) {
+      WireExecChain(EventNode, BindNode, TEXT("event-to-bind"));
+    }
+    if (!SectionLookupNode && !PropertyLookupNode && !BindNode && ApplyNode) {
+      WireExecChain(EventNode, ApplyNode, TEXT("event-to-apply"));
+    }
+
+    UEdGraphNode* CurrentDataNode = SectionLookupNode;
+    if (CurrentDataNode && PropertyLookupNode) {
+      ConnectPinsIfPossible(FindPrimaryObjectOutput(CurrentDataNode),
+                            FindPrimaryObjectInput(PropertyLookupNode),
+                            TEXT("section-object-to-property-lookup"));
+      CurrentDataNode = PropertyLookupNode;
+    } else if (PropertyLookupNode) {
+      CurrentDataNode = PropertyLookupNode;
+    }
+
+    if (CurrentDataNode && CastNode) {
+      ConnectPinsIfPossible(FindPrimaryObjectOutput(CurrentDataNode),
+                            FindPrimaryObjectInput(CastNode),
+                            TEXT("lookup-to-cast"));
+      CurrentDataNode = CastNode;
+    } else if (CastNode) {
+      CurrentDataNode = CastNode;
+    }
+
+    if (CurrentDataNode && BindNode) {
+      ConnectPinsIfPossible(FindPrimaryObjectOutput(CurrentDataNode),
+                            FindPrimaryObjectInput(BindNode),
+                            TEXT("data-to-bind"));
+      CurrentDataNode = BindNode;
+    } else if (BindNode) {
+      CurrentDataNode = BindNode;
+    }
+
+    if (CurrentDataNode && ApplyNode) {
+      ConnectPinsIfPossible(FindPrimaryObjectOutput(CurrentDataNode),
+                            FindPrimaryObjectInput(ApplyNode),
+                            TEXT("data-to-apply"));
     }
 
     FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
@@ -1776,14 +2507,106 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     Result->SetStringField(TEXT("propertyName"), PropertyKey);
     Result->SetStringField(TEXT("expectedType"), ExpectedType);
     Result->SetArrayField(TEXT("createdNodes"), CreatedNodes);
+    Result->SetArrayField(TEXT("autoConnections"), AutoConnections);
+    Result->SetBoolField(TEXT("hasCustomEvent"), EventNode != nullptr);
+    Result->SetBoolField(TEXT("hasSectionLookup"), SectionLookupNode != nullptr);
+    Result->SetBoolField(TEXT("hasPropertyLookup"),
+                         PropertyLookupNode != nullptr);
+    Result->SetBoolField(TEXT("hasCast"), CastNode != nullptr);
+    Result->SetBoolField(TEXT("hasBind"), BindNode != nullptr);
+    Result->SetBoolField(TEXT("hasApply"), ApplyNode != nullptr);
+    Result->SetBoolField(
+        TEXT("fullyWired"),
+        SectionLookupNode != nullptr && PropertyLookupNode != nullptr &&
+            BindNode != nullptr && ApplyNode != nullptr &&
+            AutoConnections.Num() > 0);
     Result->SetStringField(
         TEXT("warning"),
-        TEXT("Config binding cluster creation currently stamps a scaffold comment group with string literals and an optional apply call node; wiring/bind nodes remain manual."));
+        TEXT("Config binding cluster creation now stamps an event-driven chain and wires common literal/data/exec pins when lookup/bind/apply functions are provided. Delegate-specific or project-specific pins may still need manual adjustment."));
     AddAssetVerification(Result, Blueprint);
 
     SendAutomationResponse(RequestingSocket, RequestId, true,
-                           TEXT("Config binding cluster scaffold created."),
+                           TEXT("Config binding cluster created."),
                            Result);
+    return true;
+  } else if (SubAction == TEXT("summarize_migration_stage")) {
+    const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
+    FString FilterTag;
+    Payload->TryGetStringField(TEXT("commentTag"), FilterTag);
+    FilterTag = FilterTag.TrimStartAndEnd().ToLower();
+
+    TArray<TSharedPtr<FJsonValue>> GroupsJson;
+    for (UEdGraphNode* Node : TargetGraph->Nodes) {
+      UEdGraphNode_Comment* CommentNode = Cast<UEdGraphNode_Comment>(Node);
+      if (!CommentNode) {
+        continue;
+      }
+      const TArray<FString> Tags =
+          ParseBlueprintCommentTags(CommentNode->NodeComment);
+      if (!FilterTag.IsEmpty()) {
+        bool bMatched = false;
+        for (const FString& Tag : Tags) {
+          if (Tag.ToLower().Contains(FilterTag)) {
+            bMatched = true;
+            break;
+          }
+        }
+        if (!bMatched) {
+          continue;
+        }
+      }
+
+      TArray<UEdGraphNode*> GroupNodes = CollectCommentGroupNodes(CommentNode);
+      int32 ExternalLinkCount = 0;
+      for (UEdGraphNode* GroupNode : GroupNodes) {
+        if (!GroupNode) {
+          continue;
+        }
+        for (UEdGraphPin* Pin : GroupNode->Pins) {
+          if (!Pin) {
+            continue;
+          }
+          for (UEdGraphPin* LinkedPin : Pin->LinkedTo) {
+            UEdGraphNode* LinkedNode =
+                LinkedPin ? LinkedPin->GetOwningNode() : nullptr;
+            if (LinkedNode && !GroupNodes.Contains(LinkedNode)) {
+              ExternalLinkCount += 1;
+            }
+          }
+        }
+      }
+
+      TSharedPtr<FJsonObject> GroupObj = MakeShared<FJsonObject>();
+      GroupObj->SetStringField(TEXT("commentNodeId"),
+                               CommentNode->NodeGuid.ToString());
+      GroupObj->SetStringField(
+          TEXT("commentTitle"),
+          CommentNode->GetNodeTitle(ENodeTitleType::ListView).ToString());
+      GroupObj->SetStringField(TEXT("comment"), CommentNode->NodeComment);
+      TArray<TSharedPtr<FJsonValue>> TagsJson;
+      for (const FString& Tag : Tags) {
+        TagsJson.Add(MakeShared<FJsonValueString>(Tag));
+      }
+      GroupObj->SetArrayField(TEXT("tags"), TagsJson);
+      GroupObj->SetNumberField(TEXT("nodeCount"), GroupNodes.Num());
+      GroupObj->SetNumberField(TEXT("externalLinkCount"), ExternalLinkCount);
+      GroupObj->SetBoolField(
+          TEXT("disabled"),
+          CommentNode->NodeComment.Contains(TEXT("status: disabled"),
+                                            ESearchCase::IgnoreCase) ||
+              Tags.ContainsByPredicate([](const FString& Tag) {
+                return Tag.Equals(TEXT("disabled"), ESearchCase::IgnoreCase);
+              }));
+      GroupsJson.Add(MakeShared<FJsonValueObject>(GroupObj));
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("graphName"), TargetGraph->GetName());
+    Result->SetArrayField(TEXT("groups"), GroupsJson);
+    Result->SetNumberField(TEXT("groupCount"), GroupsJson.Num());
+    AddAssetVerification(Result, Blueprint);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Migration stage summary retrieved."), Result);
     return true;
   } else if (SubAction == TEXT("list_node_types")) {
     // List all available UK2Node types for AI discoverability

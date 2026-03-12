@@ -224,6 +224,9 @@ export interface BlueprintArgs extends HandlerArgs {
     parentClass?: string;
     // SCS operations array
     operations?: Array<Record<string, unknown>>;
+    // Batch graph operations
+    actions?: Array<Record<string, unknown>>;
+    stopOnError?: boolean;
 }
 
 // ============================================================================
@@ -587,6 +590,8 @@ export interface InspectArgs extends HandlerArgs {
     properties?: string[];
     sectionPrefixes?: string[];
     propertyPrefixes?: string[];
+    descriptorEntries?: Array<Record<string, unknown>>;
+    saveAfterApply?: boolean;
 }
 
 // ============================================================================
@@ -635,6 +640,26 @@ export interface GraphArgs extends HandlerArgs {
     key?: string;
     expectedType?: string;
     applyFunction?: string;
+    customEventName?: string;
+    sectionLookupFunction?: string;
+    sectionLookupClass?: string;
+    propertyLookupFunction?: string;
+    propertyLookupClass?: string;
+    bindFunction?: string;
+    bindClass?: string;
+    query?: string;
+    commentTitle?: string;
+    commentTag?: string;
+    nodeTitle?: string;
+    nodeTypeFilter?: string;
+    reason?: string;
+    statusTag?: string;
+    includePins?: boolean;
+    includeSubGraphs?: boolean;
+    newSection?: string;
+    newPropertyName?: string;
+    newExpectedType?: string;
+    disableOriginal?: boolean;
 }
 
 // ============================================================================
@@ -649,6 +674,7 @@ export interface SystemArgs extends HandlerArgs {
     template?: string;
     params?: Record<string, unknown>;
     level?: number;
+    limit?: number;
     key?: string;
     value?: string;
     section?: string;

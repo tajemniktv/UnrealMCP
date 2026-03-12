@@ -2,21 +2,6 @@
 
 This backlog keeps only ideas that still look missing, weak, or worth expanding in the local fork. It is organized by workflow area instead of by where the idea originally came from.
 
-## Recent Progress
-
-Landed recently and no longer the main backlog drivers:
-
-- richer Blueprint graph inspection in `get_graph_details` / `get_node_details` / `get_pin_details`
-- comment-group discovery via `list_comment_groups`
-- first-pass graph rewrite primitives via `disconnect_subgraph` and `duplicate_subgraph`
-- first-pass config-binding scaffold creation via `create_config_binding_cluster`
-- broader mod-config repair entrypoints via `repair_mod_config_tree`, `diff_mod_config_tree`, and `check_live_bridge_capabilities`
-- bridge/tool status enrichment via `transport_self_check`, `get_bridge_status`, tool stability metadata, and resource-side status summaries
-- disabled-by-default Python fallback scaffold with allowlisted template execution, opt-in unsafe full-code/file execution, and status reporting
-- a more reliable Python execution harness with structured params, stdout/stderr/traceback capture, safer result serialization, preserved source labels, and a broader built-in template set for editor/content queries
-
-The backlog below keeps only what still looks incomplete or weak after those passes.
-
 ## 1. Blueprint Ownership Migration Work
 
 ### TajsGraph Blueprint ownership migration support
@@ -40,7 +25,8 @@ Worth adding:
 - nested composite graph traversal helpers
 - better summaries for repeated binding clusters in large EventGraphs
 - graph diffs that summarize control/data-flow changes after mutation
-- comment-group or region-scoped graph queries so large EventGraphs do not require full-graph dumps just to recover a few legacy node IDs
+- deeper nested/composite traversal beyond the current nested-graph discovery/search support
+- richer query/filter support layered on top of the new `find_nodes` action, especially for nested composite graphs and repeated binding families
 - node queries by title/comment-group instead of GUID-only follow-up work when the graph is already known to contain repeated binding patterns
 - stronger Blueprint graph access from the Python fallback path, or a documented equivalent graph-introspection API when Blueprint editor properties are not exposed to Python the normal way
 
@@ -55,7 +41,7 @@ Why it matters:
 Worth adding:
 
 - move or replace a composite binding cluster in one operation
-- duplicate an existing binding composite and retarget only section/property key pins
+- extend the current duplicate/retarget/disable helpers beyond literal-pin retargeting into richer project-specific cluster semantics
 - safer isolate/disable flows for legacy subgraphs before deleting them
 - reconnect or retarget external links when duplicating a subgraph
 - comment-group aware “disable without delete” operations
@@ -87,24 +73,12 @@ Why it matters:
 - the current graph repeats the same pattern for many settings
 - the current scaffold is useful, but it still stops short of the full repetitive authoring acceleration this workflow needs
 
-### Blueprint graph pin-connection ergonomics
-
-Worth adding:
-
-- make `connect_pins` accept one canonical argument shape and report that shape clearly in docs and errors
-- preserve support for the human-friendly `sourceNode` / `sourcePin` / `targetNode` / `targetPin` form without silently failing
-- better error output when a node exists but the wrong parameter mapping was used
-
-Why it matters:
-
-- in the TajsGraph pass, `connect_pins` using `sourceNode` / `targetNode` failed with `NODE_NOT_FOUND`, while the explicit `fromNodeId` / `fromPinName` / `toNodeId` / `toPinName` form worked
-- this is survivable, but it wastes time on avoidable trial-and-error during graph rewrites
-
 ### Blueprint stage cleanup and migration summaries
 
 Worth adding:
 
 - a way to disable or isolate legacy subgraphs without deleting them immediately
+- build more migration-specific flows on top of the new `disable_subgraph` action, especially staged “disable + summarize + replace” workflows
 - graph comments/tags that can be queried and mutated through MCP
 - compile-time diff summaries after graph mutation
 - staged migration summaries that make it obvious what was:
@@ -182,10 +156,10 @@ Worth adding:
 
 - one-call “repair config section classes” flows
 - one-call “normalize config IDs and widget section classes” flows
-- stronger diff-style summaries before and after mutation
+- stronger diff-style summaries before and after mutation beyond the current descriptor-vs-live tree helper
 - better issue categories for config, widget, and class loadability
 - a one-call “can the live bridge create the right widget-backed config classes?” check
-- a one-call “diff live tree vs expected descriptor list” helper for migrations where the target config already exists but missing legacy keys must be backfilled
+- broader migration recipes layered on top of the current descriptor diff/backfill helper, especially for section deletion/moves, ID normalization, and more opinionated repair plans than the current combined migration orchestrator
 
 ## 3. Stability, Compatibility, and Transport
 
@@ -408,7 +382,7 @@ Worth adding:
 - broaden the allowlisted template/script model with validated arguments
 - add stronger structured result/error serialization back into normal MCP response shapes
 - keep the live `system_control` Python entrypoints tolerant of wrapper drift by accepting both direct payload fields and nested `params` fields, plus legacy aliases such as `script` and `path`
-- add thin editor-scripting utility wrappers on top of Python for common workflow tasks such as running editor utilities, selected-asset validation, and small content audit jobs without bespoke native handlers
+- add more thin editor-scripting utility wrappers on top of Python for common workflow tasks beyond the current editor-utility/content-audit coverage
 - keep explicit safety controls:
   - editor-only
   - disabled by default unless configured

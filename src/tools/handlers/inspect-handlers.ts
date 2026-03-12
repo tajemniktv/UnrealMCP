@@ -75,6 +75,55 @@ function getAssetsFromSearchResponse(response: Record<string, unknown>): Array<R
   return [];
 }
 
+type ConfigDescriptorEntry = Record<string, unknown> & {
+  key?: string;
+  kind?: string;
+  propertyType?: string;
+  value?: unknown;
+  displayName?: unknown;
+  tooltip?: unknown;
+  requiresWorldReload?: unknown;
+  hidden?: unknown;
+};
+
+function normalizeDescriptorEntries(entries: unknown): ConfigDescriptorEntry[] {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((entry): entry is ConfigDescriptorEntry => typeof entry === 'object' && entry !== null && !Array.isArray(entry))
+    .map((entry) => entry);
+}
+
+function splitDescriptorKey(key: string): { section?: string; key: string } {
+  const parts = key.split('.').filter((part) => part.trim().length > 0);
+  if (parts.length <= 1) {
+    return { key };
+  }
+  return {
+    section: parts.slice(0, -1).join('/'),
+    key: parts[parts.length - 1]
+  };
+}
+
+function descriptorType(entry: ConfigDescriptorEntry): string | undefined {
+  return asString(entry.propertyType) ?? asString(entry.kind);
+}
+
+function shouldRunConfigRepair(argsTyped: InspectArgs): boolean {
+  const record = argsTyped as Record<string, unknown>;
+  return Boolean(
+    typeof argsTyped.plainOnly === 'boolean' ||
+    typeof argsTyped.rewriteSections === 'boolean' ||
+    typeof argsTyped.rewriteProperties === 'boolean' ||
+    asString(record.classPath) ||
+    asString(record.className) ||
+    asString(record.sectionClassPath) ||
+    (Array.isArray(argsTyped.sections) && argsTyped.sections.length > 0) ||
+    (Array.isArray(argsTyped.properties) && argsTyped.properties.length > 0) ||
+    (Array.isArray(argsTyped.sectionPrefixes) && argsTyped.sectionPrefixes.length > 0) ||
+    (Array.isArray(argsTyped.propertyPrefixes) && argsTyped.propertyPrefixes.length > 0)
+  );
+}
+
 /**
  * Action aliases for test compatibility
  * Maps test action names to handler action names
@@ -963,6 +1012,236 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         valid: issues.filter((issue) => issue.severity === 'error').length === 0,
         descriptorCount: descriptor.length,
         issues
+      });
+    }
+    case 'diff_mod_config_expected_descriptor': {
+      const expectedDescriptor = normalizeDescriptorEntries((argsTyped as Record<string, unknown>).descriptorEntries);
+      if (expectedDescriptor.length === 0) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_DESCRIPTOR',
+          message: 'diff_mod_config_expected_descriptor requires a non-empty descriptorEntries array.'
+        });
+      }
+
+      const liveDescriptorRes = await handleInspectTools('get_mod_config_descriptor', args, tools);
+      const liveDescriptor = normalizeDescriptorEntries((liveDescriptorRes as Record<string, unknown>).descriptor);
+      const liveByKey = new Map(liveDescriptor.map((entry) => [String(entry.key ?? ''), entry]));
+      const expectedByKey = new Map(expectedDescriptor.map((entry) => [String(entry.key ?? ''), entry]));
+
+      const missing: ConfigDescriptorEntry[] = [];
+      const mismatched: Array<Record<string, unknown>> = [];
+      const extra: ConfigDescriptorEntry[] = [];
+
+      for (const expected of expectedDescriptor) {
+        const key = String(expected.key ?? '');
+        if (!key) continue;
+        const live = liveByKey.get(key);
+        if (!live) {
+          missing.push(expected);
+          continue;
+        }
+
+        const differences: Record<string, unknown> = {};
+        if (descriptorType(expected) !== descriptorType(live)) differences.kind = { expected: descriptorType(expected), actual: descriptorType(live) };
+        if (expected.displayName !== live.displayName) differences.displayName = { expected: expected.displayName, actual: live.displayName };
+        if (expected.tooltip !== live.tooltip) differences.tooltip = { expected: expected.tooltip, actual: live.tooltip };
+        if (expected.requiresWorldReload !== live.requiresWorldReload) differences.requiresWorldReload = { expected: expected.requiresWorldReload, actual: live.requiresWorldReload };
+        if (expected.hidden !== live.hidden) differences.hidden = { expected: expected.hidden, actual: live.hidden };
+        if (JSON.stringify(expected.value) !== JSON.stringify(live.value)) differences.value = { expected: expected.value, actual: live.value };
+
+        if (Object.keys(differences).length > 0) {
+          mismatched.push({
+            key,
+            expected,
+            actual: live,
+            differences
+          });
+        }
+      }
+
+      for (const live of liveDescriptor) {
+        const key = String(live.key ?? '');
+        if (!key) continue;
+        if (!expectedByKey.has(key)) {
+          extra.push(live);
+        }
+      }
+
+      return cleanObject({
+        success: true,
+        liveDescriptorCount: liveDescriptor.length,
+        expectedDescriptorCount: expectedDescriptor.length,
+        missing,
+        mismatched,
+        extra,
+        missingCount: missing.length,
+        mismatchedCount: mismatched.length,
+        extraCount: extra.length,
+        matches: missing.length === 0 && mismatched.length === 0,
+        liveDescriptor: liveDescriptorRes
+      });
+    }
+    case 'backfill_mod_config_from_descriptor': {
+      const diff = await handleInspectTools('diff_mod_config_expected_descriptor', args, tools);
+      if (diff.success === false) {
+        return cleanObject(diff);
+      }
+
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const missing = normalizeDescriptorEntries((diff as Record<string, unknown>).missing);
+      const mismatched = Array.isArray((diff as Record<string, unknown>).mismatched)
+        ? ((diff as Record<string, unknown>).mismatched as Array<Record<string, unknown>>)
+        : [];
+      const rewriteProperties = typeof argsTyped.rewriteProperties === 'boolean' ? argsTyped.rewriteProperties : false;
+      const dryRun = argsTyped.dryRun === true;
+      const saveAfterApply = (argsTyped as Record<string, unknown>).saveAfterApply === true;
+
+      const planned = [
+        ...missing.map((entry) => ({ mode: 'missing', entry })),
+        ...mismatched.map((entry) => ({ mode: 'mismatch', entry: toRecord(entry.expected) }))
+      ].filter((entry) => entry.mode === 'missing' || rewriteProperties);
+
+      if (dryRun) {
+        return cleanObject({
+          success: true,
+          dryRun: true,
+          rewriteProperties,
+          plannedCount: planned.length,
+          planned
+        });
+      }
+
+      const applied: Array<Record<string, unknown>> = [];
+      for (const plan of planned) {
+        const descriptorEntry = toRecord(plan.entry);
+        const fullKey = asString(descriptorEntry.key);
+        const propertyType = descriptorType(descriptorEntry);
+        if (!fullKey || !propertyType) {
+          applied.push({
+            success: false,
+            mode: plan.mode,
+            key: fullKey,
+            error: 'INVALID_DESCRIPTOR_ENTRY',
+            message: 'Descriptor entry requires key and kind/propertyType.'
+          });
+          continue;
+        }
+
+        const keyParts = splitDescriptorKey(fullKey);
+        const upsertResult = await executeAutomationRequest(tools, 'inspect', {
+          action: 'upsert_mod_config_property',
+          objectPath,
+          key: keyParts.key,
+          section: keyParts.section,
+          propertyType,
+          displayName: descriptorEntry.displayName,
+          tooltip: descriptorEntry.tooltip,
+          requiresWorldReload: descriptorEntry.requiresWorldReload,
+          hidden: descriptorEntry.hidden,
+          value: descriptorEntry.value
+        }) as Record<string, unknown>;
+
+        applied.push(cleanObject({
+          mode: plan.mode,
+          fullKey,
+          ...upsertResult
+        }) as Record<string, unknown>);
+      }
+
+      let saveResult: Record<string, unknown> | undefined;
+      if (saveAfterApply && applied.some((entry) => entry.success !== false)) {
+        saveResult = cleanObject(await executeAutomationRequest(tools, 'inspect', {
+          action: 'save_mod_config',
+          objectPath
+        }) as Record<string, unknown>);
+      }
+
+      return cleanObject({
+        success: applied.every((entry) => entry.success !== false),
+        dryRun: false,
+        rewriteProperties,
+        appliedCount: applied.length,
+        applied,
+        saveResult
+      });
+    }
+    case 'migrate_mod_config_from_descriptor': {
+      const objectPath = await resolveObjectPath(args, tools);
+      if (!objectPath) {
+        throw new Error('Invalid objectPath: must be a non-empty string');
+      }
+
+      const expectedDescriptor = normalizeDescriptorEntries((argsTyped as Record<string, unknown>).descriptorEntries);
+      if (expectedDescriptor.length === 0) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_DESCRIPTOR',
+          message: 'migrate_mod_config_from_descriptor requires a non-empty descriptorEntries array.'
+        });
+      }
+
+      const dryRun = argsTyped.dryRun === true;
+      const saveAfterApply = (argsTyped as Record<string, unknown>).saveAfterApply === true;
+
+      const capabilityCheck = await handleInspectTools('check_live_bridge_capabilities', { objectPath }, tools);
+
+      let repairResult: Record<string, unknown> | undefined;
+      if (shouldRunConfigRepair(argsTyped)) {
+        repairResult = await handleInspectTools('repair_mod_config_tree', {
+          ...args,
+          objectPath,
+          dryRun
+        }, tools);
+      }
+
+      const diffBefore = await handleInspectTools('diff_mod_config_expected_descriptor', {
+        ...args,
+        objectPath,
+        descriptorEntries: expectedDescriptor
+      }, tools);
+
+      const backfillResult = await handleInspectTools('backfill_mod_config_from_descriptor', {
+        ...args,
+        objectPath,
+        descriptorEntries: expectedDescriptor,
+        dryRun,
+        saveAfterApply: false
+      }, tools);
+
+      let saveResult: Record<string, unknown> | undefined;
+      let diffAfter: Record<string, unknown> | undefined;
+      if (!dryRun) {
+        if (saveAfterApply) {
+          saveResult = await handleInspectTools('save_mod_config', { objectPath }, tools);
+        }
+        diffAfter = await handleInspectTools('diff_mod_config_expected_descriptor', {
+          ...args,
+          objectPath,
+          descriptorEntries: expectedDescriptor
+        }, tools);
+      }
+
+      return cleanObject({
+        success:
+          capabilityCheck.success !== false &&
+          (repairResult?.success !== false) &&
+          backfillResult.success !== false &&
+          (saveResult?.success !== false),
+        dryRun,
+        capabilityCheck,
+        repairResult,
+        diffBefore,
+        backfillResult,
+        saveResult,
+        diffAfter,
+        message: dryRun
+          ? 'Planned mod-config migration from expected descriptor.'
+          : 'Executed mod-config migration from expected descriptor.'
       });
     }
     case 'inspect_blueprint_defaults':

@@ -20,6 +20,70 @@ function hasBlueprintPathTraversal(path: string | undefined): boolean {
   return path.split('/').some((segment) => segment === '..');
 }
 
+function normalizeConnectPinsArgs(argsRecord: Record<string, unknown>): { normalized: Record<string, unknown>; errors: string[] } {
+  const normalized: Record<string, unknown> = { ...argsRecord };
+  const pickString = (...keys: string[]): string | undefined => {
+    for (const key of keys) {
+      const value = argsRecord[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+    return undefined;
+  };
+
+  const splitNodePin = (value: string | undefined): { nodeId?: string; pinName?: string } => {
+    if (!value) return {};
+    const dotIndex = value.indexOf('.');
+    if (dotIndex <= 0 || dotIndex >= value.length - 1) {
+      return { nodeId: value };
+    }
+    return {
+      nodeId: value.slice(0, dotIndex),
+      pinName: value.slice(dotIndex + 1)
+    };
+  };
+
+  const fromSplit = splitNodePin(pickString('fromNodeId', 'sourceNode', 'sourceNodeId'));
+  const toSplit = splitNodePin(pickString('toNodeId', 'targetNode', 'targetNodeId'));
+
+  const fromNodeId = fromSplit.nodeId;
+  const toNodeId = toSplit.nodeId;
+  const fromPinName = pickString('fromPinName', 'fromPin', 'sourcePin', 'sourcePinName', 'outputPin') ?? fromSplit.pinName;
+  const toPinName = pickString('toPinName', 'toPin', 'targetPin', 'targetPinName', 'inputPin') ?? toSplit.pinName;
+
+  if (fromNodeId) normalized.fromNodeId = fromNodeId;
+  if (toNodeId) normalized.toNodeId = toNodeId;
+  if (fromPinName) normalized.fromPinName = fromPinName;
+  if (toPinName) normalized.toPinName = toPinName;
+
+  const errors: string[] = [];
+  if (!fromNodeId) errors.push('Missing source node. Use fromNodeId/sourceNode/sourceNodeId.');
+  if (!toNodeId) errors.push('Missing target node. Use toNodeId/targetNode/targetNodeId.');
+  if (!fromPinName) errors.push('Missing source pin. Use fromPinName/fromPin/sourcePin/sourcePinName/outputPin or Node.Pin.');
+  if (!toPinName) errors.push('Missing target pin. Use toPinName/toPin/targetPin/targetPinName/inputPin or Node.Pin.');
+
+  return { normalized, errors };
+}
+
+async function getCommentGroups(
+  tools: ITools,
+  blueprintPath: string,
+  graphName?: string,
+): Promise<Array<Record<string, unknown>>> {
+  const res = await executeAutomationRequest(tools, 'manage_blueprint_graph', {
+    subAction: 'list_comment_groups',
+    blueprintPath,
+    assetPath: blueprintPath,
+    graphName
+  }) as Record<string, unknown>;
+  return Array.isArray(res.commentGroups) ? res.commentGroups as Array<Record<string, unknown>> : [];
+}
+
+function extractString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
 export async function handleBlueprintTools(action: string, args: HandlerArgs, tools: ITools): Promise<Record<string, unknown>> {
   const argsTyped = args as BlueprintArgs;
   const argsRecord = args as Record<string, unknown>;
@@ -46,6 +110,337 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
   }
   
   switch (action) {
+    case 'retarget_binding_cluster': {
+      const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name;
+      if (!blueprintPath) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_BLUEPRINT_PATH',
+          message: 'blueprintPath, path, or name is required'
+        }) as Record<string, unknown>;
+      }
+
+      const targetSection = extractString(argsRecord.newSection) ?? argsTyped.section;
+      const targetProperty = extractString(argsRecord.newPropertyName) ?? extractString(argsRecord.propertyName) ?? argsTyped.key;
+      const targetType = extractString(argsRecord.newExpectedType) ?? extractString(argsRecord.expectedType);
+      if (!targetSection || !targetProperty) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_ARGUMENT',
+          message: 'retarget_binding_cluster requires section/newSection and propertyName/key/newPropertyName.'
+        }) as Record<string, unknown>;
+      }
+
+      const commentNodeId = extractString(argsRecord.commentNodeId);
+      if (!commentNodeId) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_ARGUMENT',
+          message: 'retarget_binding_cluster currently requires commentNodeId.'
+        }) as Record<string, unknown>;
+      }
+
+      const groups = await getCommentGroups(tools, blueprintPath, argsTyped.graphName);
+      const targetGroup = groups.find((group) => extractString(group.commentNodeId) === commentNodeId);
+      if (!targetGroup) {
+        return cleanObject({
+          success: false,
+          error: 'COMMENT_GROUP_NOT_FOUND',
+          message: `Unable to find comment group '${commentNodeId}'.`
+        }) as Record<string, unknown>;
+      }
+
+      const nodes = Array.isArray(targetGroup.nodes) ? targetGroup.nodes as Array<Record<string, unknown>> : [];
+      const literalUpdates: Array<Record<string, unknown>> = [];
+      for (const node of nodes) {
+        const nodeId = extractString(node.nodeId);
+        const nodeComment = extractString(node.comment)?.toLowerCase() ?? '';
+        if (!nodeId) continue;
+        if (nodeComment.includes('section literal')) {
+          literalUpdates.push({ nodeId, pinName: 'Value', value: targetSection, role: 'section' });
+        } else if (nodeComment.includes('property literal')) {
+          literalUpdates.push({ nodeId, pinName: 'Value', value: targetProperty, role: 'property' });
+        } else if (targetType && nodeComment.includes('type literal')) {
+          literalUpdates.push({ nodeId, pinName: 'Value', value: targetType, role: 'type' });
+        }
+      }
+
+      const batchActions = literalUpdates.map((entry) => ({
+        label: `retarget-${entry.role}`,
+        action: 'set_pin_default_value',
+        args: {
+          nodeId: entry.nodeId,
+          pinName: entry.pinName,
+          value: entry.value
+        }
+      }));
+
+      if ((argsRecord.dryRun as boolean | undefined) === true) {
+        return cleanObject({
+          success: true,
+          dryRun: true,
+          commentNodeId,
+          targetSection,
+          targetProperty,
+          targetType,
+          actionCount: batchActions.length,
+          actions: batchActions,
+          message: 'Prepared binding-cluster retarget actions.'
+        }) as Record<string, unknown>;
+      }
+
+      const batchResult = await handleBlueprintTools('batch_graph_actions', {
+        blueprintPath,
+        graphName: argsTyped.graphName,
+        actions: batchActions,
+        stopOnError: true
+      }, tools);
+
+      return cleanObject({
+        ...batchResult,
+        commentNodeId,
+        targetSection,
+        targetProperty,
+        targetType
+      }) as Record<string, unknown>;
+    }
+    case 'replace_binding_cluster': {
+      const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name;
+      const commentNodeId = extractString(argsRecord.commentNodeId);
+      if (!blueprintPath || !commentNodeId) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_ARGUMENT',
+          message: 'replace_binding_cluster requires blueprintPath and commentNodeId.'
+        }) as Record<string, unknown>;
+      }
+
+      const dryRun = (argsRecord.dryRun as boolean | undefined) === true;
+      const duplicatePlan = {
+        label: 'duplicate-cluster',
+        action: 'duplicate_subgraph',
+        args: {
+          commentNodeId,
+          offsetX: argsRecord.offsetX,
+          offsetY: argsRecord.offsetY
+        }
+      };
+
+      if (dryRun) {
+        return cleanObject({
+          success: true,
+          dryRun: true,
+          plan: [
+            duplicatePlan,
+            {
+              label: 'retarget-duplicate',
+              action: 'retarget_binding_cluster',
+              args: {
+                commentNodeId: '<new-comment-node>',
+                newSection: extractString(argsRecord.newSection) ?? argsTyped.section,
+                newPropertyName: extractString(argsRecord.newPropertyName) ?? extractString(argsRecord.propertyName) ?? argsTyped.key,
+                newExpectedType: extractString(argsRecord.newExpectedType) ?? extractString(argsRecord.expectedType)
+              }
+            },
+            ...(argsTyped.disableOriginal ? [{
+              label: 'disable-original',
+              action: 'disable_subgraph',
+              args: { commentNodeId, reason: extractString(argsRecord.reason) ?? 'replaced by duplicate cluster' }
+            }] : [])
+          ],
+          message: 'Prepared replace-binding-cluster plan.'
+        }) as Record<string, unknown>;
+      }
+
+      const duplicateResult = await executeAutomationRequest(tools, 'manage_blueprint_graph', {
+        subAction: 'duplicate_subgraph',
+        blueprintPath,
+        assetPath: blueprintPath,
+        graphName: argsTyped.graphName,
+        commentNodeId,
+        offsetX: argsRecord.offsetX,
+        offsetY: argsRecord.offsetY
+      }) as Record<string, unknown>;
+
+      const duplicatedNodes = Array.isArray(duplicateResult.duplicatedNodes)
+        ? duplicateResult.duplicatedNodes as Array<Record<string, unknown>>
+        : [];
+      const oldToNewNodeIds = (duplicateResult.oldToNewNodeIds && typeof duplicateResult.oldToNewNodeIds === 'object')
+        ? duplicateResult.oldToNewNodeIds as Record<string, unknown>
+        : {};
+      const duplicatedCommentNodeId =
+        extractString(oldToNewNodeIds[commentNodeId])
+        ?? extractString(duplicatedNodes.find((node) => {
+          const nodeType = extractString(node.nodeType)?.toLowerCase() ?? '';
+          return nodeType.includes('comment');
+        })?.nodeId);
+
+      if (!duplicateResult.success || !duplicatedCommentNodeId) {
+        return cleanObject({
+          success: false,
+          error: 'DUPLICATE_FAILED',
+          duplicateResult,
+          message: 'Unable to duplicate binding cluster or identify the duplicated comment group.'
+        }) as Record<string, unknown>;
+      }
+
+      const retargetResult = await handleBlueprintTools('retarget_binding_cluster', {
+        blueprintPath,
+        graphName: argsTyped.graphName,
+        commentNodeId: duplicatedCommentNodeId,
+        newSection: extractString(argsRecord.newSection) ?? argsTyped.section,
+        newPropertyName: extractString(argsRecord.newPropertyName) ?? extractString(argsRecord.propertyName) ?? argsTyped.key,
+        newExpectedType: extractString(argsRecord.newExpectedType) ?? extractString(argsRecord.expectedType)
+      }, tools);
+
+      let disableResult: Record<string, unknown> | undefined;
+      if (argsTyped.disableOriginal) {
+        disableResult = await handleBlueprintTools('disable_subgraph', {
+          blueprintPath,
+          graphName: argsTyped.graphName,
+          commentNodeId,
+          reason: extractString(argsRecord.reason) ?? 'replaced by duplicate cluster',
+          statusTag: extractString(argsRecord.statusTag) ?? 'disabled'
+        }, tools);
+      }
+
+      return cleanObject({
+        success: duplicateResult.success !== false && retargetResult.success !== false && (disableResult?.success !== false),
+        originalCommentNodeId: commentNodeId,
+        duplicatedCommentNodeId,
+        duplicateResult,
+        retargetResult,
+        disableResult
+      }) as Record<string, unknown>;
+    }
+    case 'batch_graph_actions': {
+      const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name;
+      const actions = Array.isArray(argsTyped.actions)
+        ? argsTyped.actions.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+        : [];
+      if (actions.length === 0) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_ARGUMENT',
+          message: 'batch_graph_actions requires a non-empty actions array.'
+        }) as Record<string, unknown>;
+      }
+
+      const stopOnError = argsTyped.stopOnError !== false;
+      const dryRun = (argsRecord.dryRun as boolean | undefined) === true;
+      const sharedContext: Record<string, unknown> = {
+        blueprintPath,
+        assetPath: argsRecord.assetPath || blueprintPath,
+        path: argsRecord.path,
+        name: argsTyped.name,
+        graphName: argsTyped.graphName,
+        timeoutMs: argsTyped.timeoutMs
+      };
+      const planned = actions.map((step, index) => {
+        const stepAction = typeof step.action === 'string' ? step.action.trim() : '';
+        const stepArgs = (step.args && typeof step.args === 'object' && !Array.isArray(step.args))
+          ? step.args as Record<string, unknown>
+          : step;
+        const label = typeof step.label === 'string' && step.label.trim().length > 0
+          ? step.label.trim()
+          : typeof step.name === 'string' && step.name.trim().length > 0
+            ? step.name.trim()
+            : `${index}:${stepAction || 'unknown'}`;
+        return {
+          index,
+          label,
+          action: stepAction,
+          args: {
+            ...sharedContext,
+            ...stepArgs,
+            action: stepAction
+          }
+        };
+      });
+
+      if (dryRun) {
+        return cleanObject({
+          success: true,
+          dryRun: true,
+          stopOnError,
+          actionCount: actions.length,
+          plan: planned,
+          message: `Prepared ${actions.length} blueprint graph actions without executing them.`
+        }) as Record<string, unknown>;
+      }
+
+      const results: Array<Record<string, unknown>> = [];
+      const sharedResults: Record<string, unknown> = {};
+      for (let index = 0; index < actions.length; index += 1) {
+        const step = actions[index];
+        const stepAction = typeof step.action === 'string' ? step.action.trim() : '';
+        const stepArgs = (step.args && typeof step.args === 'object' && !Array.isArray(step.args))
+          ? step.args as Record<string, unknown>
+          : step;
+        const label = typeof step.label === 'string' && step.label.trim().length > 0
+          ? step.label.trim()
+          : typeof step.name === 'string' && step.name.trim().length > 0
+            ? step.name.trim()
+            : `${index}:${stepAction || 'unknown'}`;
+
+        if (!stepAction) {
+          const errorResult = cleanObject({
+            success: false,
+            error: 'INVALID_BATCH_ACTION',
+            index,
+            label,
+            message: 'Each batch action requires an action string.'
+          }) as Record<string, unknown>;
+          results.push(errorResult);
+          sharedResults[label] = errorResult;
+          if (stopOnError) {
+            return cleanObject({
+              success: false,
+              error: 'BATCH_ACTION_FAILED',
+              index,
+              label,
+              stopOnError,
+              results,
+              sharedResults,
+              message: 'Blueprint graph batch halted because an entry was missing its action.'
+            }) as Record<string, unknown>;
+          }
+          continue;
+        }
+
+        const mergedStepArgs: Record<string, unknown> = {
+          ...sharedContext,
+          ...stepArgs,
+          action: stepAction
+        };
+        const stepResult = await handleBlueprintTools(stepAction, mergedStepArgs, tools);
+        const normalizedStepResult = cleanObject({ index, label, action: stepAction, ...stepResult }) as Record<string, unknown>;
+        results.push(normalizedStepResult);
+        sharedResults[label] = normalizedStepResult;
+        if (stepResult.success === false && stopOnError) {
+          return cleanObject({
+            success: false,
+            error: 'BATCH_ACTION_FAILED',
+            index,
+            label,
+            stopOnError,
+            results,
+            sharedResults,
+            message: `Blueprint graph batch halted at step ${index} (${label}).`
+          }) as Record<string, unknown>;
+        }
+      }
+
+      return cleanObject({
+        success: results.every((entry) => entry.success !== false),
+        dryRun: false,
+        stopOnError,
+        actionCount: actions.length,
+        results,
+        sharedResults,
+        message: `Processed ${actions.length} blueprint graph actions.`
+      }) as Record<string, unknown>;
+    }
     case 'create': {
       // Support 'path' or 'blueprintPath' argument by splitting it into name and savePath if not provided
       let name = argsTyped.name;
@@ -455,9 +850,12 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
     case 'get_graph_details':
     case 'create_node':
     case 'list_node_types':
+    case 'list_graphs':
     case 'set_pin_default_value':
     case 'list_comment_groups':
+    case 'find_nodes':
     case 'disconnect_subgraph':
+    case 'disable_subgraph':
     case 'duplicate_subgraph':
     case 'create_config_binding_cluster': {
       // Normalize blueprintPath to assetPath for C++ handler compatibility
@@ -492,6 +890,24 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
       // defaultValue -> value (for set_pin_default_value)
       if (argsRecord.defaultValue !== undefined) {
         mappedArgs.value = argsRecord.defaultValue;
+      }
+
+      if (action === 'connect_pins') {
+        const { normalized, errors } = normalizeConnectPinsArgs(mappedArgs);
+        Object.assign(mappedArgs, normalized);
+        if (errors.length > 0) {
+          return cleanObject({
+            success: false,
+            error: 'INVALID_CONNECT_PINS_ARGUMENTS',
+            message: errors.join(' '),
+            acceptedShapes: [
+              'fromNodeId + fromPinName + toNodeId + toPinName',
+              'sourceNode + sourcePin + targetNode + targetPin',
+              'sourceNodeId + sourcePinName + targetNodeId + targetPinName',
+              'sourceNode as "Node.Pin" + targetNode as "Node.Pin"'
+            ]
+          }) as Record<string, unknown>;
+        }
       }
       
       const processedArgs = {

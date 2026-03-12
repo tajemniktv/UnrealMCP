@@ -277,6 +277,77 @@ static bool McpRunPythonTemplate(const FString& TemplateName,
         TEXT("    'name': world.get_name() if world else '',\n")
         TEXT("    'className': world.get_class().get_name() if world and world.get_class() else '',\n")
         TEXT("}\n");
+  } else if (TemplateName.Equals(TEXT("run_editor_utility"),
+                                 ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("path = str(mcp_params.get('path') or '')\n")
+        TEXT("if not path:\n")
+        TEXT("    raise RuntimeError(\"Template 'run_editor_utility' requires path.\")\n")
+        TEXT("asset = unreal.EditorAssetLibrary.load_asset(path)\n")
+        TEXT("if not asset:\n")
+        TEXT("    raise RuntimeError(f\"Unable to load editor utility asset: {path}\")\n")
+        TEXT("subsystem = unreal.get_editor_subsystem(unreal.EditorUtilitySubsystem)\n")
+        TEXT("asset_class_name = asset.get_class().get_name() if asset.get_class() else ''\n")
+        TEXT("result = {'success': True, 'path': path, 'className': asset_class_name}\n")
+        TEXT("if 'EditorUtilityWidgetBlueprint' in asset_class_name:\n")
+        TEXT("    subsystem.spawn_and_register_tab(asset)\n")
+        TEXT("    result['mode'] = 'widget'\n")
+        TEXT("else:\n")
+        TEXT("    result['mode'] = 'utility'\n")
+        TEXT("    result['ran'] = bool(subsystem.try_run(asset))\n");
+  } else if (TemplateName.Equals(TEXT("validate_selected_assets"),
+                                 ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("selected = unreal.EditorUtilityLibrary.get_selected_asset_data()\n")
+        TEXT("validator = unreal.get_editor_subsystem(unreal.EditorValidatorSubsystem)\n")
+        TEXT("items = []\n")
+        TEXT("limit_value = mcp_params.get('limit')\n")
+        TEXT("limit = int(limit_value) if isinstance(limit_value, (int, float)) else None\n")
+        TEXT("for index, data in enumerate(selected):\n")
+        TEXT("    if limit is not None and index >= limit:\n")
+        TEXT("        break\n")
+        TEXT("    asset = data.get_asset() if data else None\n")
+        TEXT("    if not asset:\n")
+        TEXT("        continue\n")
+        TEXT("    entry = {'path': asset.get_path_name(), 'name': asset.get_name()}\n")
+        TEXT("    if validator:\n")
+        TEXT("        validation_result = validator.validate_loaded_asset(asset)\n")
+        TEXT("        entry['validationResult'] = str(validation_result)\n")
+        TEXT("    items.append(entry)\n")
+        TEXT("result = {'success': True, 'items': items, 'count': len(items)}\n");
+  } else if (TemplateName.Equals(TEXT("audit_assets_in_path"),
+                                 ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("path = str(mcp_params.get('path') or '')\n")
+        TEXT("if not path:\n")
+        TEXT("    raise RuntimeError(\"Template 'audit_assets_in_path' requires path.\")\n")
+        TEXT("recursive = bool(mcp_params.get('recursive', True))\n")
+        TEXT("class_name_filter = str(mcp_params.get('className') or '').strip()\n")
+        TEXT("limit_value = mcp_params.get('limit')\n")
+        TEXT("limit = int(limit_value) if isinstance(limit_value, (int, float)) else None\n")
+        TEXT("asset_paths = unreal.EditorAssetLibrary.list_assets(path, recursive=recursive, include_folder=False)\n")
+        TEXT("items = []\n")
+        TEXT("class_counts = {}\n")
+        TEXT("for asset_path in asset_paths:\n")
+        TEXT("    asset = unreal.EditorAssetLibrary.load_asset(asset_path)\n")
+        TEXT("    if not asset:\n")
+        TEXT("        continue\n")
+        TEXT("    class_name = asset.get_class().get_name() if asset.get_class() else ''\n")
+        TEXT("    if class_name_filter and class_name != class_name_filter:\n")
+        TEXT("        continue\n")
+        TEXT("    class_counts[class_name] = class_counts.get(class_name, 0) + 1\n")
+        TEXT("    items.append({'path': asset_path, 'name': asset.get_name(), 'className': class_name})\n")
+        TEXT("    if limit is not None and len(items) >= limit:\n")
+        TEXT("        break\n")
+        TEXT("result = {\n")
+        TEXT("    'success': True,\n")
+        TEXT("    'path': path,\n")
+        TEXT("    'recursive': recursive,\n")
+        TEXT("    'classNameFilter': class_name_filter,\n")
+        TEXT("    'count': len(items),\n")
+        TEXT("    'items': items,\n")
+        TEXT("    'classCounts': class_counts,\n")
+        TEXT("}\n");
   } else {
     OutError = FString::Printf(TEXT("Unsupported Python template '%s'."), *TemplateName);
     return false;
@@ -558,6 +629,9 @@ bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
     Templates.Add(MakeShared<FJsonValueString>(TEXT("find_actors_by_class")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("get_actor_details")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("get_editor_world")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("run_editor_utility")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("validate_selected_assets")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("audit_assets_in_path")));
     Result->SetArrayField(TEXT("templates"), Templates);
     Result->SetBoolField(TEXT("unsafeExecutionSupported"), bPythonPluginEnabled);
     Result->SetStringField(

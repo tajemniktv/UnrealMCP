@@ -4842,10 +4842,28 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
     FString SourceNodeGuid, TargetNodeGuid;
     LocalPayload->TryGetStringField(TEXT("sourceNodeGuid"), SourceNodeGuid);
     LocalPayload->TryGetStringField(TEXT("targetNodeGuid"), TargetNodeGuid);
+    if (SourceNodeGuid.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("fromNodeId"), SourceNodeGuid);
+    }
+    if (SourceNodeGuid.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("sourceNode"), SourceNodeGuid);
+    }
+    if (SourceNodeGuid.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("sourceNodeId"), SourceNodeGuid);
+    }
+    if (TargetNodeGuid.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("toNodeId"), TargetNodeGuid);
+    }
+    if (TargetNodeGuid.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("targetNode"), TargetNodeGuid);
+    }
+    if (TargetNodeGuid.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("targetNodeId"), TargetNodeGuid);
+    }
 
     if (SourceNodeGuid.IsEmpty() || TargetNodeGuid.IsEmpty()) {
       SendAutomationResponse(RequestingSocket, RequestId, false,
-                             TEXT("sourceNodeGuid and targetNodeGuid required"),
+                             TEXT("connect_pins requires source and target node IDs or names. Accepted fields: sourceNodeGuid/targetNodeGuid, fromNodeId/toNodeId, or sourceNode/targetNode."),
                              nullptr, TEXT("INVALID_ARGUMENT"));
       return true;
     }
@@ -4853,6 +4871,49 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
     FString SourcePinName, TargetPinName;
     LocalPayload->TryGetStringField(TEXT("sourcePinName"), SourcePinName);
     LocalPayload->TryGetStringField(TEXT("targetPinName"), TargetPinName);
+    if (SourcePinName.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("fromPinName"), SourcePinName);
+    }
+    if (SourcePinName.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("fromPin"), SourcePinName);
+    }
+    if (SourcePinName.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("sourcePin"), SourcePinName);
+    }
+    if (SourcePinName.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("outputPin"), SourcePinName);
+    }
+    if (TargetPinName.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("toPinName"), TargetPinName);
+    }
+    if (TargetPinName.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("toPin"), TargetPinName);
+    }
+    if (TargetPinName.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("targetPin"), TargetPinName);
+    }
+    if (TargetPinName.IsEmpty()) {
+      LocalPayload->TryGetStringField(TEXT("inputPin"), TargetPinName);
+    }
+
+    if (SourceNodeGuid.Contains(TEXT(".")) && SourcePinName.IsEmpty()) {
+      FString ParsedNode;
+      FString ParsedPin;
+      if (SourceNodeGuid.Split(TEXT("."), &ParsedNode, &ParsedPin) &&
+          !ParsedNode.IsEmpty() && !ParsedPin.IsEmpty()) {
+        SourceNodeGuid = ParsedNode;
+        SourcePinName = ParsedPin;
+      }
+    }
+    if (TargetNodeGuid.Contains(TEXT(".")) && TargetPinName.IsEmpty()) {
+      FString ParsedNode;
+      FString ParsedPin;
+      if (TargetNodeGuid.Split(TEXT("."), &ParsedNode, &ParsedPin) &&
+          !ParsedNode.IsEmpty() && !ParsedPin.IsEmpty()) {
+        TargetNodeGuid = ParsedNode;
+        TargetPinName = ParsedPin;
+      }
+    }
 
     if (GBlueprintBusySet.Contains(Path)) {
       SendAutomationResponse(RequestingSocket, RequestId, false,
@@ -4887,8 +4948,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
     UEdGraphNode *SourceNode = nullptr;
     UEdGraphNode *TargetNode = nullptr;
     FGuid SourceGuid, TargetGuid;
-    FGuid::Parse(SourceNodeGuid, SourceGuid);
-    FGuid::Parse(TargetNodeGuid, TargetGuid);
+    const bool bSourceIsGuid = FGuid::Parse(SourceNodeGuid, SourceGuid);
+    const bool bTargetIsGuid = FGuid::Parse(TargetNodeGuid, TargetGuid);
 
     for (UEdGraph *Graph : BP->UbergraphPages) {
       if (!Graph)
@@ -4896,9 +4957,11 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
       for (UEdGraphNode *Node : Graph->Nodes) {
         if (!Node)
           continue;
-        if (Node->NodeGuid == SourceGuid)
+        if ((bSourceIsGuid && Node->NodeGuid == SourceGuid) ||
+            Node->GetName().Equals(SourceNodeGuid, ESearchCase::IgnoreCase))
           SourceNode = Node;
-        if (Node->NodeGuid == TargetGuid)
+        if ((bTargetIsGuid && Node->NodeGuid == TargetGuid) ||
+            Node->GetName().Equals(TargetNodeGuid, ESearchCase::IgnoreCase))
           TargetNode = Node;
       }
     }
@@ -4906,7 +4969,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
     if (!SourceNode || !TargetNode) {
       TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
       Result->SetStringField(
-          TEXT("error"), TEXT("Could not find source or target node by GUID"));
+          TEXT("error"),
+          FString::Printf(TEXT("Could not find source or target node. Resolved source='%s', target='%s'."), *SourceNodeGuid, *TargetNodeGuid));
       SendAutomationResponse(RequestingSocket, RequestId, false,
                              TEXT("Node lookup failed"), Result,
                              TEXT("NODE_NOT_FOUND"));
@@ -4942,8 +5006,9 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
 
     if (!SourcePin || !TargetPin) {
       TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
-      Result->SetStringField(TEXT("error"),
-                             TEXT("Could not find source or target pin"));
+      Result->SetStringField(
+          TEXT("error"),
+          FString::Printf(TEXT("Could not find source pin '%s' or target pin '%s'."), *SourcePinName, *TargetPinName));
       SendAutomationResponse(RequestingSocket, RequestId, false,
                              TEXT("Pin lookup failed"), Result,
                              TEXT("PIN_NOT_FOUND"));

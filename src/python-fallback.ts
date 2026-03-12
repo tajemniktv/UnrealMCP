@@ -9,7 +9,10 @@ export const PYTHON_TEMPLATE_NAMES = [
   'get_selected_asset_details',
   'find_actors_by_class',
   'get_actor_details',
-  'get_editor_world'
+  'get_editor_world',
+  'run_editor_utility',
+  'validate_selected_assets',
+  'audit_assets_in_path'
 ] as const;
 
 export type PythonTemplateName = typeof PYTHON_TEMPLATE_NAMES[number];

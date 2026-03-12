@@ -29,6 +29,33 @@ describe('Inspect Handlers', () => {
                     if (action === 'inspect_object') {
                         return { success: true, className: 'StaticMesh', objectPath: args.objectPath };
                     }
+                    if (action === 'get_mod_config_tree') {
+                        return {
+                            success: true,
+                            tree: {
+                                key: 'RootSection',
+                                kind: 'section',
+                                children: [
+                                    {
+                                        key: 'Graphics',
+                                        kind: 'section',
+                                        children: [
+                                            {
+                                                key: 'EnableFancyThing',
+                                                kind: 'bool',
+                                                value: true,
+                                                displayName: 'Enable Fancy Thing',
+                                                tooltip: 'Toggle fancy rendering',
+                                                requiresWorldReload: false,
+                                                hidden: false,
+                                                path: 'Graphics/EnableFancyThing'
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        };
+                    }
                     if (action === 'get_property' && args.objectPath === '/Game/Meshes/SM_Source.SM_Source' && args.propertyName === 'StaticMaterials') {
                         return { success: true, value: [{ slotName: 'A' }, { slotName: 'B' }] };
                     }
@@ -152,5 +179,141 @@ describe('Inspect Handlers', () => {
         const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
         const inspectCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'check_live_bridge_capabilities');
         expect(inspectCall).toBeTruthy();
+    });
+
+    it('diffs the live mod config tree against an expected descriptor list', async () => {
+        const result = await handleInspectTools('diff_mod_config_expected_descriptor', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            descriptorEntries: [
+                {
+                    key: 'Graphics.EnableFancyThing',
+                    kind: 'bool',
+                    value: false,
+                    displayName: 'Enable Fancy Thing',
+                    tooltip: 'Toggle fancy rendering',
+                    requiresWorldReload: false,
+                    hidden: false
+                },
+                {
+                    key: 'Graphics.ShadowSteps',
+                    kind: 'int',
+                    value: 8,
+                    displayName: 'Shadow Steps',
+                    tooltip: 'Step count'
+                }
+            ]
+        }, mockTools);
+
+        expect(result.success).toBe(true);
+        expect(result.missingCount).toBe(1);
+        expect(result.mismatchedCount).toBe(1);
+        expect((result.missing as Array<Record<string, unknown>>)[0]?.key).toBe('Graphics.ShadowSteps');
+        expect((result.mismatched as Array<Record<string, unknown>>)[0]?.key).toBe('Graphics.EnableFancyThing');
+    });
+
+    it('backfills missing descriptor entries into the mod config tree', async () => {
+        const result = await handleInspectTools('backfill_mod_config_from_descriptor', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            descriptorEntries: [
+                {
+                    key: 'Graphics.ShadowSteps',
+                    kind: 'int',
+                    value: 8,
+                    displayName: 'Shadow Steps',
+                    tooltip: 'Step count',
+                    requiresWorldReload: true
+                }
+            ],
+            saveAfterApply: true
+        }, mockTools);
+
+        expect(result.success).toBe(true);
+        expect(result.appliedCount).toBe(1);
+
+        const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        const upsertCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'upsert_mod_config_property');
+        expect(upsertCall).toBeTruthy();
+        expect(upsertCall[1]?.section).toBe('Graphics');
+        expect(upsertCall[1]?.key).toBe('ShadowSteps');
+        expect(upsertCall[1]?.propertyType).toBe('int');
+
+        const saveCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'save_mod_config');
+        expect(saveCall).toBeTruthy();
+    });
+
+    it('only rewrites mismatches when rewriteProperties is enabled', async () => {
+        await handleInspectTools('backfill_mod_config_from_descriptor', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            descriptorEntries: [
+                {
+                    key: 'Graphics.EnableFancyThing',
+                    kind: 'bool',
+                    value: false,
+                    displayName: 'Enable Fancy Thing',
+                    tooltip: 'Toggle fancy rendering'
+                }
+            ],
+            rewriteProperties: false
+        }, mockTools);
+
+        let calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        let upsertCalls = calls.filter((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'upsert_mod_config_property');
+        expect(upsertCalls.length).toBe(0);
+
+        (mockTools.automationBridge.sendAutomationRequest as any).mockClear();
+
+        await handleInspectTools('backfill_mod_config_from_descriptor', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            descriptorEntries: [
+                {
+                    key: 'Graphics.EnableFancyThing',
+                    kind: 'bool',
+                    value: false,
+                    displayName: 'Enable Fancy Thing',
+                    tooltip: 'Toggle fancy rendering'
+                }
+            ],
+            rewriteProperties: true
+        }, mockTools);
+
+        calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        upsertCalls = calls.filter((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'upsert_mod_config_property');
+        expect(upsertCalls.length).toBe(1);
+        expect(upsertCalls[0][1]?.key).toBe('EnableFancyThing');
+    });
+
+    it('runs a combined mod-config migration workflow from descriptor input', async () => {
+        const result = await handleInspectTools('migrate_mod_config_from_descriptor', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig',
+            descriptorEntries: [
+                {
+                    key: 'Graphics.ShadowSteps',
+                    kind: 'int',
+                    value: 8,
+                    displayName: 'Shadow Steps',
+                    tooltip: 'Step count',
+                    requiresWorldReload: true
+                }
+            ],
+            sectionPrefixes: ['Graphics'],
+            rewriteProperties: true,
+            saveAfterApply: true
+        }, mockTools);
+
+        expect(result.success).toBe(true);
+        expect((result.capabilityCheck as Record<string, unknown>).success).toBe(true);
+        expect((result.repairResult as Record<string, unknown>).success).toBe(true);
+        expect((result.backfillResult as Record<string, unknown>).success).toBe(true);
+        expect((result.saveResult as Record<string, unknown>).success).toBe(true);
+
+        const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
+        const repairCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'repair_mod_config_tree');
+        const capabilityCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'check_live_bridge_capabilities');
+        const saveCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'save_mod_config');
+
+        expect(capabilityCall).toBeTruthy();
+        expect(repairCall).toBeTruthy();
+        expect(saveCall).toBeTruthy();
+        expect(repairCall[1]?.sectionPrefixes).toEqual(['Graphics']);
     });
 });
