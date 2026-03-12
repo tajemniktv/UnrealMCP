@@ -303,25 +303,32 @@ export class AnimationTools {
               }
             });
 
+            const bridge = this.automationBridge;
+            if (!bridge) {
+              return { success: false, message: 'Automation bridge not available', error: 'AUTOMATION_BRIDGE_UNAVAILABLE' };
+            }
+
             // Add states if provided
-            for (const state of normalizedStates) {
+            if (normalizedStates.length > 0) {
               await this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
-                subAction: 'add_state',
+                subAction: 'add_states',
                 blueprintPath,
                 stateMachineName: machineName,
-                stateName: state.name
+                states: normalizedStates
               }), { timeoutMs: 30000 });
             }
 
             // Add transitions if provided
-            for (const transition of normalizedTransitions) {
+            if (normalizedTransitions.length > 0) {
               await this.automationBridge.sendAutomationRequest('manage_animation_authoring', cleanObject({
-                subAction: 'add_transition',
+                subAction: 'add_transitions',
                 blueprintPath,
                 stateMachineName: machineName,
-                fromState: transition.sourceState,
-                toState: transition.targetState,
-                crossfadeDuration: 0.2
+                transitions: normalizedTransitions.map(t => ({
+                  fromState: t.sourceState,
+                  toState: t.targetState,
+                  crossfadeDuration: 0.2
+                }))
               }), { timeoutMs: 30000 });
             }
 

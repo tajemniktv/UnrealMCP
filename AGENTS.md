@@ -160,3 +160,19 @@ npm run test:smoke     # Mock-mode smoke test
 - Integration tests support pipe-separated expectations such as `success|error|timeout`.
 - Version data is synchronized across `package.json`, `server.json`, and `src/index.ts`.
 - CI workflows pin actions by commit SHA.
+
+## Dynamic Tool Discovery & Token Optimization
+
+To optimize token usage, the MCP server may not provide all 36 tools by default (especially if `MCP_DEFAULT_CATEGORIES` is set to `core`).
+
+**If you are asked to perform a task (e.g., create a widget, modify a level, control gameplay) and you do not see the corresponding tool in your list:**
+1. You **must** use the `manage_tools` tool with `action: 'enable_category'`.
+2. Provide the appropriate category name:
+   - `core`: Basic system management tools.
+   - `world`: Level, landscape, and environment management.
+   - `authoring`: Asset creation (widgets, materials, blueprints).
+   - `gameplay`: AI, inventory, combat, networking, GAS.
+   - `utility`: Helper utilities and inspectors.
+3. Once the category is enabled, the server will expose the new tools to you, and you can proceed with the task.
+
+**Example:** If you need to author a widget but `manage_widget_authoring` is missing, call `manage_tools({ action: 'enable_category', category: 'authoring' })` first.
