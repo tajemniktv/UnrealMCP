@@ -1220,7 +1220,8 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     LowerSubAction.Equals(TEXT("find_by_tag")) ||
     LowerSubAction.Equals(TEXT("inspect_class")) ||
     LowerSubAction.Equals(TEXT("find_components_by_mesh")) ||
-    LowerSubAction.Equals(TEXT("find_components_by_material"));
+    LowerSubAction.Equals(TEXT("find_components_by_material")) ||
+    LowerSubAction.Equals(TEXT("batch_inspect_objects"));
 
   // Actions that require actorName instead of objectPath
   const bool bIsActorAction = 
@@ -1698,6 +1699,79 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
       return true;
     }
     
+        else if (LowerSubAction.Equals(TEXT("batch_inspect_objects"))) {
+      TArray<TSharedPtr<FJsonValue>> ObjectPathsArray;
+      if (Payload->TryGetArrayField(TEXT("objectPaths"), ObjectPathsArray)) {
+        TArray<TSharedPtr<FJsonValue>> ResultsArray;
+
+        for (const TSharedPtr<FJsonValue>& PathVal : ObjectPathsArray) {
+          FString Path = PathVal->AsString();
+          TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
+          ResultObj->SetStringField(TEXT("objectPath"), Path);
+
+          UObject* TargetObject = nullptr;
+          if (Path.Contains(TEXT(".")) && !Path.StartsWith(TEXT("/"))) {
+            FString ActorName = Path.Left(Path.Find(TEXT(".")));
+            FString ComponentName = Path.Right(Path.Len() - ActorName.Len() - 1);
+            if (!ActorName.IsEmpty() && !ComponentName.IsEmpty()) {
+              if (AActor* Actor = FindActorByName(ActorName)) {
+                if (UActorComponent* Comp = FindComponentByName(Actor, ComponentName)) {
+                  TargetObject = Comp;
+                  Path = Comp->GetPathName();
+                }
+              }
+            }
+          }
+
+          if (!TargetObject) {
+            TargetObject = FindObject<UObject>(nullptr, *Path);
+          }
+
+          if (!TargetObject && GEditor) {
+            if (AActor* FoundActor = FindActorByName(Path)) {
+              TargetObject = FoundActor;
+            } else {
+              UWorld* World = GEditor->GetEditorWorldContext().World();
+              if (World) {
+                for (TActorIterator<AActor> It(World); It; ++It) {
+                  AActor* Actor = *It;
+                  if (Actor && (Actor->GetActorLabel().Equals(Path, ESearchCase::IgnoreCase) ||
+                                Actor->GetName().Equals(Path, ESearchCase::IgnoreCase))) {
+                    TargetObject = Actor;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          bool bSuccess = (TargetObject != nullptr);
+          ResultObj->SetBoolField(TEXT("success"), bSuccess);
+          ResultObj->SetBoolField(TEXT("loadable"), bSuccess);
+
+          if (bSuccess) {
+            ResultObj->SetStringField(TEXT("className"), TargetObject->GetClass()->GetName());
+            ResultObj->SetStringField(TEXT("classPath"), TargetObject->GetClass()->GetPathName());
+          }
+
+          ResultsArray.Add(MakeShared<FJsonValueObject>(ResultObj));
+        }
+
+        Resp->SetBoolField(TEXT("success"), true);
+        Resp->SetArrayField(TEXT("results"), ResultsArray);
+        SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Batch inspection completed"), Resp, FString());
+      } else {
+        SendAutomationError(RequestingSocket, RequestId, TEXT("objectPaths array is required for batch_inspect_objects"), TEXT("INVALID_ARGUMENT"));
+      }
+      return true;
+    }
+
+
+
+
+
+
+
     // Fallback for unimplemented global actions
     Resp->SetBoolField(TEXT("success"), true);
     Resp->SetStringField(TEXT("message"), FString::Printf(TEXT("Action %s acknowledged (placeholder implementation)"), *SubAction));
