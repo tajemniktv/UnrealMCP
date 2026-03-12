@@ -1700,11 +1700,11 @@ bool UMcpAutomationBridgeSubsystem::HandleInspectAction(
     }
     
         else if (LowerSubAction.Equals(TEXT("batch_inspect_objects"))) {
-      TArray<TSharedPtr<FJsonValue>> ObjectPathsArray;
-      if (Payload->TryGetArrayField(TEXT("objectPaths"), ObjectPathsArray)) {
+      const TArray<TSharedPtr<FJsonValue>>* ObjectPathsArray = nullptr;
+      if (Payload->TryGetArrayField(TEXT("objectPaths"), ObjectPathsArray) && ObjectPathsArray) {
         TArray<TSharedPtr<FJsonValue>> ResultsArray;
 
-        for (const TSharedPtr<FJsonValue>& PathVal : ObjectPathsArray) {
+        for (const TSharedPtr<FJsonValue>& PathVal : *ObjectPathsArray) {
           FString Path = PathVal->AsString();
           TSharedPtr<FJsonObject> ResultObj = MakeShared<FJsonObject>();
           ResultObj->SetStringField(TEXT("objectPath"), Path);
