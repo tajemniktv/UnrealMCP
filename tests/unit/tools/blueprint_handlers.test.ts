@@ -199,6 +199,83 @@ describe('Blueprint Handlers', () => {
         );
     });
 
+    it('forwards create_comment_group to the blueprint graph bridge action', async () => {
+        const tools = createMockTools() as any;
+
+        const result = await handleBlueprintTools('create_comment_group', {
+            blueprintPath: '/Game/Test/BP_Test',
+            graphName: 'EventGraph',
+            commentTitle: 'Shadow Cluster',
+            commentText: 'Migrated binding cluster',
+            tags: ['config-binding', 'shadow'],
+            nodeIds: ['NodeA', 'NodeB'],
+            moveMode: 'group_movement',
+            commentColor: { r: 0.1, g: 0.2, b: 0.3, a: 1.0 }
+        }, tools);
+
+        expect(result.success).toBe(true);
+        expect(tools.automationBridge.sendAutomationRequest).toHaveBeenCalledWith(
+            'manage_blueprint_graph',
+            expect.objectContaining({
+                subAction: 'create_comment_group',
+                blueprintPath: '/Game/Test/BP_Test',
+                graphName: 'EventGraph',
+                commentTitle: 'Shadow Cluster',
+                commentText: 'Migrated binding cluster',
+                tags: ['config-binding', 'shadow'],
+                nodeIds: ['NodeA', 'NodeB'],
+                moveMode: 'group_movement'
+            }),
+            {}
+        );
+    });
+
+    it('forwards collapse_to_subgraph to the blueprint graph bridge action', async () => {
+        const tools = createMockTools() as any;
+
+        const result = await handleBlueprintTools('collapse_to_subgraph', {
+            blueprintPath: '/Game/Test/BP_Test',
+            graphName: 'EventGraph',
+            commentNodeId: 'Comment123',
+            newGraphName: 'CollapsedShadowFlow'
+        }, tools);
+
+        expect(result.success).toBe(true);
+        expect(tools.automationBridge.sendAutomationRequest).toHaveBeenCalledWith(
+            'manage_blueprint_graph',
+            expect.objectContaining({
+                subAction: 'collapse_to_subgraph',
+                blueprintPath: '/Game/Test/BP_Test',
+                graphName: 'EventGraph',
+                commentNodeId: 'Comment123',
+                newGraphName: 'CollapsedShadowFlow'
+            }),
+            {}
+        );
+    });
+
+    it('forwards expand_collapsed_node to the blueprint graph bridge action', async () => {
+        const tools = createMockTools() as any;
+
+        const result = await handleBlueprintTools('expand_collapsed_node', {
+            blueprintPath: '/Game/Test/BP_Test',
+            graphName: 'EventGraph',
+            nodeId: 'CompositeNode123'
+        }, tools);
+
+        expect(result.success).toBe(true);
+        expect(tools.automationBridge.sendAutomationRequest).toHaveBeenCalledWith(
+            'manage_blueprint_graph',
+            expect.objectContaining({
+                subAction: 'expand_collapsed_node',
+                blueprintPath: '/Game/Test/BP_Test',
+                graphName: 'EventGraph',
+                nodeId: 'CompositeNode123'
+            }),
+            {}
+        );
+    });
+
     it('forwards disable_subgraph to the blueprint graph bridge action', async () => {
         const tools = createMockTools() as any;
 

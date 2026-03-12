@@ -14,7 +14,6 @@ Worth adding:
 
 Why it matters:
 
-- the stage notes in [TAJSGRAPH_BP_OWNERSHIP_STAGE_NOTES.md](e:/SatisfactoryModding/SatisfactoryModLoader/Unreal_mcp/TAJSGRAPH_BP_OWNERSHIP_STAGE_NOTES.md) describe a real current migration problem, not a hypothetical future feature
 - the main remaining issue is split ownership between legacy graph bindings, subsystem/native refresh paths, and newer Blueprint-driven config handling
 - this is the first backlog item that is directly tied to an active TajsGraph migration rather than a general MCP capability gap
 
@@ -25,7 +24,7 @@ Worth adding:
 - nested composite graph traversal helpers
 - better summaries for repeated binding clusters in large EventGraphs
 - graph diffs that summarize control/data-flow changes after mutation
-- deeper nested/composite traversal beyond the current nested-graph discovery/search support
+- deeper recursive nested/composite traversal beyond the current nested-graph discovery/search and explicit composite collapse/expand support
 - richer query/filter support layered on top of the new `find_nodes` action, especially for nested composite graphs and repeated binding families
 - node queries by title/comment-group instead of GUID-only follow-up work when the graph is already known to contain repeated binding patterns
 - stronger Blueprint graph access from the Python fallback path, or a documented equivalent graph-introspection API when Blueprint editor properties are not exposed to Python the normal way
@@ -77,9 +76,7 @@ Why it matters:
 
 Worth adding:
 
-- a way to disable or isolate legacy subgraphs without deleting them immediately
 - build more migration-specific flows on top of the new `disable_subgraph` action, especially staged “disable + summarize + replace” workflows
-- graph comments/tags that can be queried and mutated through MCP
 - compile-time diff summaries after graph mutation
 - staged migration summaries that make it obvious what was:
   - isolated
@@ -162,50 +159,6 @@ Worth adding:
 - broader migration recipes layered on top of the current descriptor diff/backfill helper, especially for section deletion/moves, ID normalization, and more opinionated repair plans than the current combined migration orchestrator
 
 ## 3. Stability, Compatibility, and Transport
-
-### UE 5.7.x compatibility and crash hardening
-
-Worth adding:
-
-- harden crash-prone inspect paths on newer engine versions, especially:
-  - Blueprint inspection
-  - mesh actor inspection
-  - material function inspection
-  - GAS-related inspection
-- capability/version guards when an action is not safe on the running engine build
-- downgrade known crash paths to structured MCP errors where possible
-- better plugin/build compatibility handling for newer UE versions
-- stronger validation around inputs that currently fail late or crash, including:
-  - `control_editor` level-path handling
-  - console command execution
-  - requests that depend on missing editor state
-- Windows-safe path handling wherever source/code paths are resolved
-
-Why it matters:
-
-- stability and engine-version resilience are still more important than feature breadth when read-only inspection can crash the editor
-
-### Tool stability quarantine and degraded-mode behavior
-
-Worth adding:
-
-- stronger action-level version gating so unstable paths can be marked per action, not only per tool
-- a richer stability report showing why a tool/action is safe, degraded, disabled, or version-blocked
-- safer failure behavior for tools known to destabilize the editor
-
-### Connection and transport diagnostics
-
-Worth adding:
-
-- better diagnosis for `socket hang up` and handshake failures, especially in Docker or mixed host/container setups
-- real-time streaming of long-running logs, build output, and test progress through chunked responses or SSE-style updates instead of waiting for a final payload
-- extend the current transport self-check to cover:
-  - HTTP reachability
-  - WS reachability
-  - Remote Control plugin state
-  - Python/plugin prerequisites
-  - likely port/config mismatches
-- clearer remediation messages for common connection failures
 
 ### Optional pluginless editor transport
 

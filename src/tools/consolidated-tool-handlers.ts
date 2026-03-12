@@ -181,7 +181,7 @@ function registerDefaultHandlers() {
       return await handleBlueprintGet(args, tools);
     }
     // Graph actions (merged from manage_blueprint_graph)
-    const graphActions = ['create_node', 'delete_node', 'connect_pins', 'break_pin_links', 'set_node_property', 'create_reroute_node', 'get_node_details', 'get_graph_details', 'get_pin_details', 'list_node_types', 'set_pin_default_value'];
+    const graphActions = ['create_node', 'delete_node', 'connect_pins', 'break_pin_links', 'set_node_property', 'create_reroute_node', 'get_node_details', 'get_graph_details', 'get_pin_details', 'list_node_types', 'list_graphs', 'set_pin_default_value', 'list_comment_groups', 'create_comment_group', 'update_comment_group', 'find_nodes', 'disconnect_subgraph', 'disable_subgraph', 'duplicate_subgraph', 'collapse_to_subgraph', 'expand_collapsed_node', 'create_config_binding_cluster'];
     if (graphActions.includes(action)) {
       return await handleGraphTools('manage_blueprint_graph', action, args, tools);
     }

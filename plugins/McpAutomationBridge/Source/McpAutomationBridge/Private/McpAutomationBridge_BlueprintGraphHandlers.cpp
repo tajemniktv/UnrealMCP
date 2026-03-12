@@ -15,8 +15,10 @@
 #include "K2Node_BreakStruct.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_CommutativeAssociativeBinaryOperator.h"
+#include "K2Node_Composite.h"
 #include "K2Node_CustomEvent.h"
 #include "K2Node_DynamicCast.h"
+#include "K2Node_EditablePinBase.h"
 #include "K2Node_Event.h"
 #include "K2Node_ExecutionSequence.h"
 #include "K2Node_FunctionEntry.h"
@@ -31,8 +33,10 @@
 #include "K2Node_Select.h"
 #include "K2Node_Self.h"
 #include "K2Node_Timeline.h"
+#include "K2Node_Tunnel.h"
 #include "K2Node_VariableGet.h"
 #include "K2Node_VariableSet.h"
+#include "EdGraphSchema_K2.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -82,8 +86,7 @@ static TArray<TSharedPtr<FJsonValue>> SerializeBlueprintSubGraphs(
     return GraphsJson;
   }
 
-  TArray<UEdGraph*> SubGraphs;
-  Node->GetSubGraphs(SubGraphs);
+  const TArray<UEdGraph*> SubGraphs = Node->GetSubGraphs();
   for (UEdGraph* SubGraph : SubGraphs) {
     if (!SubGraph) {
       continue;
@@ -215,6 +218,289 @@ static TArray<UEdGraphNode*> SortBlueprintNodes(const TSet<UEdGraphNode*>& Nodes
     return BlueprintNodeSortKey(&A) < BlueprintNodeSortKey(&B);
   });
   return Sorted;
+}
+
+static FString BuildBlueprintCommentText(const FString& Title,
+                                         const FString& CommentText,
+                                         const TArray<FString>& Tags) {
+  TArray<FString> Lines;
+  if (!Title.TrimStartAndEnd().IsEmpty()) {
+    Lines.Add(Title.TrimStartAndEnd());
+  }
+  if (!CommentText.TrimStartAndEnd().IsEmpty()) {
+    Lines.Add(CommentText.TrimStartAndEnd());
+  }
+  if (Tags.Num() > 0) {
+    Lines.Add(FString::Printf(TEXT("tags: %s"), *FString::Join(Tags, TEXT(","))));
+  }
+  return FString::Join(Lines, TEXT("\n"));
+}
+
+static void ParseBlueprintCommentText(const FString& SourceText, FString& OutTitle,
+                                      FString& OutCommentBody,
+                                      TArray<FString>& OutTags) {
+  OutTitle.Reset();
+  OutCommentBody.Reset();
+  OutTags = ParseBlueprintCommentTags(SourceText);
+
+  TArray<FString> Lines;
+  SourceText.ParseIntoArrayLines(Lines);
+  TArray<FString> BodyLines;
+  for (const FString& RawLine : Lines) {
+    const FString TrimmedLine = RawLine.TrimStartAndEnd();
+    if (TrimmedLine.IsEmpty()) {
+      continue;
+    }
+    if (TrimmedLine.StartsWith(TEXT("tags:"), ESearchCase::IgnoreCase) ||
+        TrimmedLine.StartsWith(TEXT("tag:"), ESearchCase::IgnoreCase) ||
+        TrimmedLine.StartsWith(TEXT("[tags:"), ESearchCase::IgnoreCase)) {
+      continue;
+    }
+    if (OutTitle.IsEmpty()) {
+      OutTitle = TrimmedLine;
+    } else {
+      BodyLines.Add(TrimmedLine);
+    }
+  }
+  OutCommentBody = FString::Join(BodyLines, TEXT("\n"));
+}
+
+static bool TryReadBlueprintCommentColor(const TSharedPtr<FJsonObject>& Payload,
+                                         const FString& FieldName,
+                                         FLinearColor& OutColor) {
+  const TSharedPtr<FJsonObject>* ColorObj = nullptr;
+  if (!Payload.IsValid() || !Payload->TryGetObjectField(FieldName, ColorObj) ||
+      !ColorObj || !(*ColorObj).IsValid()) {
+    return false;
+  }
+
+  double R = OutColor.R;
+  double G = OutColor.G;
+  double B = OutColor.B;
+  double A = OutColor.A;
+  (*ColorObj)->TryGetNumberField(TEXT("r"), R);
+  (*ColorObj)->TryGetNumberField(TEXT("g"), G);
+  (*ColorObj)->TryGetNumberField(TEXT("b"), B);
+  (*ColorObj)->TryGetNumberField(TEXT("a"), A);
+  OutColor = FLinearColor(static_cast<float>(R), static_cast<float>(G),
+                          static_cast<float>(B), static_cast<float>(A));
+  return true;
+}
+
+static void SortBlueprintPinsByConnectionPosition(TArray<UEdGraphPin*>& Pins) {
+  Pins.Sort([](const UEdGraphPin& A, const UEdGraphPin& B) {
+    const UEdGraphNode* ANode = A.GetOwningNode();
+    const UEdGraphNode* BNode = B.GetOwningNode();
+    const bool bAExec = A.PinType.PinCategory == UEdGraphSchema_K2::PC_Exec;
+    const bool bBExec = B.PinType.PinCategory == UEdGraphSchema_K2::PC_Exec;
+    if (bAExec != bBExec) {
+      return bAExec && !bBExec;
+    }
+
+    const int32 ALinkedY =
+        (A.LinkedTo.Num() > 0 && A.LinkedTo[0] && A.LinkedTo[0]->GetOwningNode())
+            ? A.LinkedTo[0]->GetOwningNode()->NodePosY
+            : (ANode ? ANode->NodePosY : 0);
+    const int32 BLinkedY =
+        (B.LinkedTo.Num() > 0 && B.LinkedTo[0] && B.LinkedTo[0]->GetOwningNode())
+            ? B.LinkedTo[0]->GetOwningNode()->NodePosY
+            : (BNode ? BNode->NodePosY : 0);
+    if (ALinkedY != BLinkedY) {
+      return ALinkedY < BLinkedY;
+    }
+
+    const int32 ALinkedX =
+        (A.LinkedTo.Num() > 0 && A.LinkedTo[0] && A.LinkedTo[0]->GetOwningNode())
+            ? A.LinkedTo[0]->GetOwningNode()->NodePosX
+            : (ANode ? ANode->NodePosX : 0);
+    const int32 BLinkedX =
+        (B.LinkedTo.Num() > 0 && B.LinkedTo[0] && B.LinkedTo[0]->GetOwningNode())
+            ? B.LinkedTo[0]->GetOwningNode()->NodePosX
+            : (BNode ? BNode->NodePosX : 0);
+    if (ALinkedX != BLinkedX) {
+      return ALinkedX < BLinkedX;
+    }
+
+    return A.PinName.LexicalLess(B.PinName);
+  });
+}
+
+static void CollapseNodesIntoCompositeGraph(UBlueprint* Blueprint,
+                                            UK2Node_Composite* GatewayNode,
+                                            UEdGraph* SourceGraph,
+                                            UEdGraph* DestinationGraph,
+                                            TSet<UEdGraphNode*>& NodesToCollapse) {
+  if (!Blueprint || !GatewayNode || !SourceGraph || !DestinationGraph) {
+    return;
+  }
+
+  UK2Node_EditablePinBase* EntryNode = GatewayNode->GetInputSink();
+  UK2Node_EditablePinBase* ResultNode = GatewayNode->GetOutputSource();
+  const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
+  if (!EntryNode || !ResultNode || !K2Schema) {
+    return;
+  }
+
+  int32 SumNodeX = 0;
+  int32 SumNodeY = 0;
+  int32 MinNodeX = TNumericLimits<int32>::Max();
+  int32 MinNodeY = TNumericLimits<int32>::Max();
+  int32 MaxNodeX = TNumericLimits<int32>::Lowest();
+  int32 MaxNodeY = TNumericLimits<int32>::Lowest();
+
+  TArray<UEdGraphPin*> GatewayPins;
+
+  for (UEdGraphNode* Node : SortBlueprintNodes(NodesToCollapse)) {
+    if (!Node) {
+      continue;
+    }
+
+    Node->Modify();
+    SumNodeX += Node->NodePosX;
+    SumNodeY += Node->NodePosY;
+    MinNodeX = FMath::Min(MinNodeX, Node->NodePosX);
+    MinNodeY = FMath::Min(MinNodeY, Node->NodePosY);
+    MaxNodeX = FMath::Max(MaxNodeX, Node->NodePosX);
+    MaxNodeY = FMath::Max(MaxNodeY, Node->NodePosY);
+
+    SourceGraph->Nodes.Remove(Node);
+    DestinationGraph->Nodes.Add(Node);
+    Node->Rename(nullptr, DestinationGraph, REN_DontCreateRedirectors);
+
+    if (UK2Node_Composite* CompositeNode = Cast<UK2Node_Composite>(Node)) {
+      SourceGraph->SubGraphs.Remove(CompositeNode->BoundGraph);
+      DestinationGraph->SubGraphs.Add(CompositeNode->BoundGraph);
+    }
+
+    for (UEdGraphPin* LocalPin : Node->Pins) {
+      if (!LocalPin || LocalPin->LinkedTo.Num() == 0) {
+        continue;
+      }
+
+      bool bIsGatewayPin = false;
+      for (UEdGraphPin* TrialPin : LocalPin->LinkedTo) {
+        if (TrialPin && !NodesToCollapse.Contains(TrialPin->GetOwningNode())) {
+          bIsGatewayPin = true;
+          break;
+        }
+      }
+
+      if (bIsGatewayPin) {
+        GatewayPins.Add(LocalPin);
+      }
+    }
+  }
+
+  SortBlueprintPinsByConnectionPosition(GatewayPins);
+
+  for (UEdGraphPin* LocalPin : GatewayPins) {
+    if (!LocalPin || LocalPin->LinkedTo.Num() == 0) {
+      continue;
+    }
+
+    UK2Node_EditablePinBase* LocalPort =
+        (LocalPin->Direction == EGPD_Input) ? EntryNode : ResultNode;
+    FEdGraphPinType PinType = LocalPin->PinType;
+    if (PinType.bIsWeakPointer && !PinType.IsContainer()) {
+      PinType.bIsWeakPointer = false;
+    }
+
+    const FName UniquePortName = GatewayNode->CreateUniquePinName(LocalPin->PinName);
+    UEdGraphPin* RemotePortPin =
+        GatewayNode->CreatePin(LocalPin->Direction, PinType, UniquePortName);
+    UEdGraphPin* LocalPortPin = LocalPort->CreateUserDefinedPin(
+        UniquePortName, PinType,
+        (LocalPin->Direction == EGPD_Input) ? EGPD_Output : EGPD_Input);
+
+    if (!RemotePortPin || !LocalPortPin) {
+      continue;
+    }
+
+    for (int32 LinkIndex = 0; LinkIndex < LocalPin->LinkedTo.Num(); ++LinkIndex) {
+      UEdGraphPin* RemotePin = LocalPin->LinkedTo[LinkIndex];
+      if (!RemotePin || NodesToCollapse.Contains(RemotePin->GetOwningNode()) ||
+          RemotePin->GetOwningNode() == EntryNode ||
+          RemotePin->GetOwningNode() == ResultNode) {
+        continue;
+      }
+
+      RemotePin->Modify();
+      RemotePin->LinkedTo.Remove(LocalPin);
+      if (RemotePin->GetOwningNode() &&
+          RemotePin->GetOwningNode()->GetOuter() ==
+              RemotePortPin->GetOwningNode()->GetOuter()) {
+        RemotePin->MakeLinkTo(RemotePortPin);
+      }
+
+      if (LocalPort == EntryNode) {
+        LocalPortPin->BreakAllPinLinks();
+      }
+
+      LocalPin->LinkedTo.Remove(RemotePin);
+      --LinkIndex;
+      LocalPin->MakeLinkTo(LocalPortPin);
+    }
+  }
+
+  const int32 NumNodes = NodesToCollapse.Num();
+  const int32 CenterX = NumNodes == 0 ? GatewayNode->NodePosX : SumNodeX / NumNodes;
+  const int32 CenterY = NumNodes == 0 ? GatewayNode->NodePosY : SumNodeY / NumNodes;
+
+  GatewayNode->NodePosX = CenterX;
+  GatewayNode->NodePosY = CenterY;
+
+  if (NumNodes > 0) {
+    EntryNode->NodePosX = MinNodeX - 160;
+    EntryNode->NodePosY = CenterY;
+    ResultNode->NodePosX = MaxNodeX + 300;
+    ResultNode->NodePosY = CenterY;
+  }
+}
+
+static void MoveNodesFromCollapsedGraph(UEdGraph* SourceGraph,
+                                        UEdGraph* DestinationGraph,
+                                        TSet<UEdGraphNode*>& OutExpandedNodes,
+                                        UEdGraphNode** OutEntry,
+                                        UEdGraphNode** OutResult) {
+  if (!SourceGraph || !DestinationGraph || !OutEntry || !OutResult) {
+    return;
+  }
+
+  TArray<UEdGraphNode*> SourceNodes = SourceGraph->Nodes;
+  while (SourceNodes.Num() > 0) {
+    UEdGraphNode* Node = SourceNodes.Pop(false);
+    if (!Node) {
+      continue;
+    }
+
+    UEdGraph* OriginalGraph = Node->GetGraph();
+    Node->Modify();
+    if (OriginalGraph) {
+      OriginalGraph->Modify();
+      OriginalGraph->RemoveNode(Node, false);
+    }
+
+    Node->Rename(nullptr, DestinationGraph, REN_DontCreateRedirectors);
+    DestinationGraph->AddNode(Node, false, false);
+
+    if (UK2Node_Composite* CompositeNode = Cast<UK2Node_Composite>(Node)) {
+      if (OriginalGraph) {
+        OriginalGraph->SubGraphs.Remove(CompositeNode->BoundGraph);
+      }
+      DestinationGraph->SubGraphs.Add(CompositeNode->BoundGraph);
+    }
+
+    if (Node->GetClass() == UK2Node_Tunnel::StaticClass()) {
+      UK2Node_Tunnel* TunnelNode = Cast<UK2Node_Tunnel>(Node);
+      if (TunnelNode && TunnelNode->bCanHaveOutputs) {
+        *OutEntry = Node;
+      } else if (TunnelNode && TunnelNode->bCanHaveInputs) {
+        *OutResult = Node;
+      }
+    } else {
+      OutExpandedNodes.Add(Node);
+    }
+  }
 }
 
 } // namespace
@@ -1259,6 +1545,265 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     SendAutomationResponse(RequestingSocket, RequestId, true,
                            TEXT("Comment groups retrieved."), Result);
     return true;
+  } else if (SubAction == TEXT("create_comment_group")) {
+    const FScopedTransaction Transaction(
+        FText::FromString(TEXT("Create Blueprint Comment Group")));
+    Blueprint->Modify();
+    TargetGraph->Modify();
+
+    FString CommentTitle;
+    FString CommentBody;
+    Payload->TryGetStringField(TEXT("commentTitle"), CommentTitle);
+    if (CommentTitle.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("title"), CommentTitle);
+    }
+    Payload->TryGetStringField(TEXT("commentText"), CommentBody);
+    if (CommentBody.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("comment"), CommentBody);
+    }
+
+    TArray<FString> Tags;
+    const TArray<TSharedPtr<FJsonValue>>* TagsJson = nullptr;
+    if (Payload->TryGetArrayField(TEXT("tags"), TagsJson) && TagsJson) {
+      for (const TSharedPtr<FJsonValue>& TagValue : *TagsJson) {
+        FString TagString;
+        if (TagValue.IsValid() && TagValue->TryGetString(TagString) &&
+            !TagString.TrimStartAndEnd().IsEmpty()) {
+          Tags.Add(TagString.TrimStartAndEnd());
+        }
+      }
+    }
+
+    TArray<UEdGraphNode*> NodesUnderComment;
+    const TArray<TSharedPtr<FJsonValue>>* NodeIdsJson = nullptr;
+    if (Payload->TryGetArrayField(TEXT("nodeIds"), NodeIdsJson) && NodeIdsJson) {
+      for (const TSharedPtr<FJsonValue>& NodeIdValue : *NodeIdsJson) {
+        FString NodeId;
+        if (!NodeIdValue.IsValid() || !NodeIdValue->TryGetString(NodeId) ||
+            NodeId.IsEmpty()) {
+          continue;
+        }
+        if (UEdGraphNode* Node = FindNodeByIdOrName(NodeId)) {
+          if (!Node->IsA<UEdGraphNode_Comment>()) {
+            NodesUnderComment.AddUnique(Node);
+          }
+        }
+      }
+    }
+
+    double X = 0.0;
+    double Y = 0.0;
+    double Width = 640.0;
+    double Height = 320.0;
+    const bool bHasX = Payload->TryGetNumberField(TEXT("x"), X);
+    const bool bHasY = Payload->TryGetNumberField(TEXT("y"), Y);
+    const bool bHasWidth = Payload->TryGetNumberField(TEXT("width"), Width);
+    const bool bHasHeight = Payload->TryGetNumberField(TEXT("height"), Height);
+    double Padding = 80.0;
+    Payload->TryGetNumberField(TEXT("padding"), Padding);
+
+    if (NodesUnderComment.Num() > 0 &&
+        (!bHasX || !bHasY || !bHasWidth || !bHasHeight)) {
+      int32 MinX = TNumericLimits<int32>::Max();
+      int32 MinY = TNumericLimits<int32>::Max();
+      int32 MaxX = TNumericLimits<int32>::Lowest();
+      int32 MaxY = TNumericLimits<int32>::Lowest();
+
+      for (UEdGraphNode* Node : NodesUnderComment) {
+        if (!Node) {
+          continue;
+        }
+        MinX = FMath::Min(MinX, Node->NodePosX);
+        MinY = FMath::Min(MinY, Node->NodePosY);
+        MaxX = FMath::Max(MaxX, Node->NodePosX + Node->NodeWidth);
+        MaxY = FMath::Max(MaxY, Node->NodePosY + Node->NodeHeight);
+      }
+
+      if (!bHasX) {
+        X = MinX - Padding;
+      }
+      if (!bHasY) {
+        Y = MinY - Padding;
+      }
+      if (!bHasWidth) {
+        Width = (MaxX - MinX) + (Padding * 2.0);
+      }
+      if (!bHasHeight) {
+        Height = (MaxY - MinY) + (Padding * 2.0);
+      }
+    }
+
+    FGraphNodeCreator<UEdGraphNode_Comment> CommentCreator(*TargetGraph);
+    UEdGraphNode_Comment* CommentNode = CommentCreator.CreateNode(false);
+    CommentNode->NodePosX = static_cast<int32>(X);
+    CommentNode->NodePosY = static_cast<int32>(Y);
+    CommentNode->NodeWidth = static_cast<float>(Width);
+    CommentNode->NodeHeight = static_cast<float>(Height);
+    CommentNode->NodeComment =
+        BuildBlueprintCommentText(CommentTitle, CommentBody, Tags);
+
+    FString MoveMode;
+    Payload->TryGetStringField(TEXT("moveMode"), MoveMode);
+    CommentNode->MoveMode =
+        MoveMode.Equals(TEXT("comment"), ESearchCase::IgnoreCase) ||
+                MoveMode.Equals(TEXT("no_group_movement"),
+                                ESearchCase::IgnoreCase)
+            ? ECommentBoxMode::NoGroupMovement
+            : ECommentBoxMode::GroupMovement;
+
+    double FontSizeValue = 0.0;
+    if (Payload->TryGetNumberField(TEXT("fontSize"), FontSizeValue)) {
+      CommentNode->FontSize =
+          FMath::Clamp(static_cast<int32>(FontSizeValue), 1, 1000);
+    }
+    TryReadBlueprintCommentColor(Payload, TEXT("commentColor"),
+                                 CommentNode->CommentColor);
+
+    CommentCreator.Finalize();
+    CommentNode->ClearNodesUnderComment();
+    for (UEdGraphNode* Node : NodesUnderComment) {
+      CommentNode->AddNodeUnderComment(Node);
+    }
+
+    TargetGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+
+    const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetObjectField(
+        TEXT("commentGroup"),
+        SerializeNodeWithMembership(CommentNode, Membership, false, false, true));
+    Result->SetStringField(TEXT("commentNodeId"),
+                           CommentNode->NodeGuid.ToString());
+    Result->SetNumberField(TEXT("memberCount"), NodesUnderComment.Num());
+    AddAssetVerification(Result, Blueprint);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Comment group created."), Result);
+    return true;
+  } else if (SubAction == TEXT("update_comment_group")) {
+    const FScopedTransaction Transaction(
+        FText::FromString(TEXT("Update Blueprint Comment Group")));
+    Blueprint->Modify();
+    TargetGraph->Modify();
+
+    FString CommentNodeId;
+    Payload->TryGetStringField(TEXT("commentNodeId"), CommentNodeId);
+    if (CommentNodeId.IsEmpty()) {
+      Payload->TryGetStringField(TEXT("nodeId"), CommentNodeId);
+    }
+
+    UEdGraphNode_Comment* CommentNode =
+        Cast<UEdGraphNode_Comment>(FindNodeByIdOrName(CommentNodeId));
+    if (!CommentNode) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Comment node not found."),
+                          TEXT("COMMENT_GROUP_NOT_FOUND"));
+      return true;
+    }
+
+    CommentNode->Modify();
+
+    FString ExistingTitle;
+    FString ExistingBody;
+    TArray<FString> ExistingTags;
+    ParseBlueprintCommentText(CommentNode->NodeComment, ExistingTitle, ExistingBody,
+                              ExistingTags);
+
+    FString CommentTitle = ExistingTitle;
+    FString CommentBody = ExistingBody;
+    if (Payload->HasField(TEXT("commentTitle")) || Payload->HasField(TEXT("title"))) {
+      Payload->TryGetStringField(TEXT("commentTitle"), CommentTitle);
+      if (CommentTitle.IsEmpty()) {
+        Payload->TryGetStringField(TEXT("title"), CommentTitle);
+      }
+    }
+    if (Payload->HasField(TEXT("commentText")) || Payload->HasField(TEXT("comment"))) {
+      Payload->TryGetStringField(TEXT("commentText"), CommentBody);
+      if (CommentBody.IsEmpty()) {
+        Payload->TryGetStringField(TEXT("comment"), CommentBody);
+      }
+    }
+
+    TArray<FString> Tags = ExistingTags;
+    const TArray<TSharedPtr<FJsonValue>>* TagsJson = nullptr;
+    if (Payload->TryGetArrayField(TEXT("tags"), TagsJson) && TagsJson) {
+      Tags.Reset();
+      for (const TSharedPtr<FJsonValue>& TagValue : *TagsJson) {
+        FString TagString;
+        if (TagValue.IsValid() && TagValue->TryGetString(TagString) &&
+            !TagString.TrimStartAndEnd().IsEmpty()) {
+          Tags.Add(TagString.TrimStartAndEnd());
+        }
+      }
+    }
+    CommentNode->NodeComment =
+        BuildBlueprintCommentText(CommentTitle, CommentBody, Tags);
+
+    double X = 0.0;
+    if (Payload->TryGetNumberField(TEXT("x"), X)) {
+      CommentNode->NodePosX = static_cast<int32>(X);
+    }
+    double Y = 0.0;
+    if (Payload->TryGetNumberField(TEXT("y"), Y)) {
+      CommentNode->NodePosY = static_cast<int32>(Y);
+    }
+    double Width = 0.0;
+    if (Payload->TryGetNumberField(TEXT("width"), Width)) {
+      CommentNode->NodeWidth = static_cast<float>(Width);
+    }
+    double Height = 0.0;
+    if (Payload->TryGetNumberField(TEXT("height"), Height)) {
+      CommentNode->NodeHeight = static_cast<float>(Height);
+    }
+
+    double FontSizeValue = 0.0;
+    if (Payload->TryGetNumberField(TEXT("fontSize"), FontSizeValue)) {
+      CommentNode->FontSize =
+          FMath::Clamp(static_cast<int32>(FontSizeValue), 1, 1000);
+    }
+
+    FString MoveMode;
+    if (Payload->TryGetStringField(TEXT("moveMode"), MoveMode)) {
+      CommentNode->MoveMode =
+          MoveMode.Equals(TEXT("comment"), ESearchCase::IgnoreCase) ||
+                  MoveMode.Equals(TEXT("no_group_movement"),
+                                  ESearchCase::IgnoreCase)
+              ? ECommentBoxMode::NoGroupMovement
+              : ECommentBoxMode::GroupMovement;
+    }
+
+    TryReadBlueprintCommentColor(Payload, TEXT("commentColor"),
+                                 CommentNode->CommentColor);
+
+    const TArray<TSharedPtr<FJsonValue>>* NodeIdsJson = nullptr;
+    if (Payload->TryGetArrayField(TEXT("nodeIds"), NodeIdsJson) && NodeIdsJson) {
+      CommentNode->ClearNodesUnderComment();
+      for (const TSharedPtr<FJsonValue>& NodeIdValue : *NodeIdsJson) {
+        FString NodeId;
+        if (!NodeIdValue.IsValid() || !NodeIdValue->TryGetString(NodeId) ||
+            NodeId.IsEmpty()) {
+          continue;
+        }
+        if (UEdGraphNode* Node = FindNodeByIdOrName(NodeId)) {
+          if (!Node->IsA<UEdGraphNode_Comment>()) {
+            CommentNode->AddNodeUnderComment(Node);
+          }
+        }
+      }
+    }
+
+    TargetGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+
+    const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
+    TSharedPtr<FJsonObject> Result =
+        SerializeNodeWithMembership(CommentNode, Membership, false, false, true);
+    Result->SetStringField(TEXT("commentNodeId"),
+                           CommentNode->NodeGuid.ToString());
+    AddAssetVerification(Result, Blueprint);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Comment group updated."), Result);
+    return true;
   } else if (SubAction == TEXT("find_nodes")) {
     const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
     FString Query;
@@ -2099,6 +2644,169 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     SendAutomationResponse(RequestingSocket, RequestId, true,
                            TEXT("Graphs retrieved."), Result);
     return true;
+  } else if (SubAction == TEXT("collapse_to_subgraph")) {
+    const FScopedTransaction Transaction(
+        FText::FromString(TEXT("Collapse Blueprint Nodes To Subgraph")));
+    Blueprint->Modify();
+    TargetGraph->Modify();
+
+    TSet<UEdGraphNode*> NodesToCollapse;
+    FString CommentNodeId;
+    Payload->TryGetStringField(TEXT("commentNodeId"), CommentNodeId);
+    if (!CommentNodeId.IsEmpty()) {
+      if (UEdGraphNode_Comment* CommentNode =
+              Cast<UEdGraphNode_Comment>(FindNodeByIdOrName(CommentNodeId))) {
+        for (UEdGraphNode* Node : CollectCommentGroupNodes(CommentNode)) {
+          if (Node && Node != CommentNode && !Node->IsA<UEdGraphNode_Comment>()) {
+            NodesToCollapse.Add(Node);
+          }
+        }
+      }
+    }
+
+    const TArray<TSharedPtr<FJsonValue>>* NodeIdsJson = nullptr;
+    if (Payload->TryGetArrayField(TEXT("nodeIds"), NodeIdsJson) && NodeIdsJson) {
+      for (const TSharedPtr<FJsonValue>& NodeIdValue : *NodeIdsJson) {
+        FString NodeId;
+        if (!NodeIdValue.IsValid() || !NodeIdValue->TryGetString(NodeId) ||
+            NodeId.IsEmpty()) {
+          continue;
+        }
+        if (UEdGraphNode* Node = FindNodeByIdOrName(NodeId)) {
+          if (!Node->IsA<UEdGraphNode_Comment>()) {
+            NodesToCollapse.Add(Node);
+          }
+        }
+      }
+    }
+
+    if (NodesToCollapse.Num() == 0) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("collapse_to_subgraph requires nodeIds or commentNodeId with member nodes."),
+                          TEXT("INVALID_ARGUMENT"));
+      return true;
+    }
+
+    int32 SumX = 0;
+    int32 SumY = 0;
+    for (UEdGraphNode* Node : NodesToCollapse) {
+      SumX += Node->NodePosX;
+      SumY += Node->NodePosY;
+    }
+    const int32 CenterX = SumX / NodesToCollapse.Num();
+    const int32 CenterY = SumY / NodesToCollapse.Num();
+
+    FGraphNodeCreator<UK2Node_Composite> GatewayCreator(*TargetGraph);
+    UK2Node_Composite* GatewayNode = GatewayCreator.CreateNode(false);
+    GatewayNode->bCanRenameNode = true;
+    GatewayNode->NodePosX = CenterX;
+    GatewayNode->NodePosY = CenterY;
+    GatewayCreator.Finalize();
+
+    FString NewGraphName;
+    Payload->TryGetStringField(TEXT("newGraphName"), NewGraphName);
+    if (NewGraphName.IsEmpty()) {
+      NewGraphName =
+          FBlueprintEditorUtils::FindUniqueKismetName(Blueprint,
+                                                      TEXT("CollapseGraph"))
+              .ToString();
+    }
+
+    if (GatewayNode->BoundGraph) {
+      FBlueprintEditorUtils::RenameGraph(GatewayNode->BoundGraph, NewGraphName);
+      CollapseNodesIntoCompositeGraph(Blueprint, GatewayNode, TargetGraph,
+                                      GatewayNode->BoundGraph, NodesToCollapse);
+    }
+
+    TargetGraph->NotifyGraphChanged();
+    if (GatewayNode->BoundGraph) {
+      GatewayNode->BoundGraph->NotifyGraphChanged();
+    }
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+
+    const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetObjectField(
+        TEXT("collapsedNode"),
+        SerializeNodeWithMembership(GatewayNode, Membership, true, true, true));
+    Result->SetStringField(TEXT("nodeId"), GatewayNode->NodeGuid.ToString());
+    Result->SetStringField(TEXT("collapsedGraphName"),
+                           GatewayNode->BoundGraph
+                               ? GatewayNode->BoundGraph->GetName()
+                               : FString());
+    Result->SetStringField(TEXT("collapsedGraphPath"),
+                           GatewayNode->BoundGraph
+                               ? GatewayNode->BoundGraph->GetPathName()
+                               : FString());
+    Result->SetNumberField(TEXT("collapsedNodeCount"), NodesToCollapse.Num());
+    AddAssetVerification(Result, Blueprint);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Nodes collapsed to subgraph."), Result);
+    return true;
+  } else if (SubAction == TEXT("expand_collapsed_node")) {
+    const FScopedTransaction Transaction(
+        FText::FromString(TEXT("Expand Blueprint Collapsed Node")));
+    Blueprint->Modify();
+    TargetGraph->Modify();
+
+    FString NodeId;
+    Payload->TryGetStringField(TEXT("nodeId"), NodeId);
+    UK2Node_Composite* CompositeNode =
+        Cast<UK2Node_Composite>(FindNodeByIdOrName(NodeId));
+    if (!CompositeNode || !CompositeNode->BoundGraph) {
+      SendAutomationError(RequestingSocket, RequestId,
+                          TEXT("Collapsed composite node not found."),
+                          TEXT("NODE_NOT_FOUND"));
+      return true;
+    }
+
+    UEdGraph* SourceGraph = CompositeNode->BoundGraph;
+    SourceGraph->Modify();
+
+    TSet<UEdGraphNode*> ExpandedNodes;
+    UEdGraphNode* EntryNode = nullptr;
+    UEdGraphNode* ResultNode = nullptr;
+    MoveNodesFromCollapsedGraph(SourceGraph, TargetGraph, ExpandedNodes,
+                                &EntryNode, &ResultNode);
+
+    const UEdGraphSchema_K2* K2Schema = GetDefault<UEdGraphSchema_K2>();
+    if (K2Schema) {
+      K2Schema->CollapseGatewayNode(CompositeNode, EntryNode, ResultNode, nullptr,
+                                    &ExpandedNodes);
+    }
+
+    if (EntryNode) {
+      EntryNode->DestroyNode();
+    }
+    if (ResultNode) {
+      ResultNode->DestroyNode();
+    }
+    if (SourceGraph->SubGraphs.Num() > 0) {
+      TargetGraph->SubGraphs.Append(SourceGraph->SubGraphs);
+      SourceGraph->SubGraphs.Empty();
+    }
+
+    const FString ExpandedGraphName = SourceGraph->GetName();
+    CompositeNode->DestroyNode();
+
+    TargetGraph->NotifyGraphChanged();
+    FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+
+    const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
+    TArray<TSharedPtr<FJsonValue>> ExpandedNodesJson;
+    for (UEdGraphNode* ExpandedNode : SortBlueprintNodes(ExpandedNodes)) {
+      ExpandedNodesJson.Add(MakeShared<FJsonValueObject>(
+          SerializeNodeWithMembership(ExpandedNode, Membership, true, true, true)));
+    }
+
+    TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
+    Result->SetStringField(TEXT("expandedGraphName"), ExpandedGraphName);
+    Result->SetArrayField(TEXT("expandedNodes"), ExpandedNodesJson);
+    Result->SetNumberField(TEXT("expandedNodeCount"), ExpandedNodesJson.Num());
+    AddAssetVerification(Result, Blueprint);
+    SendAutomationResponse(RequestingSocket, RequestId, true,
+                           TEXT("Collapsed node expanded."), Result);
+    return true;
   } else if (SubAction == TEXT("get_pin_details")) {
     FString NodeId;
     Payload->TryGetStringField(TEXT("nodeId"), NodeId);
@@ -2287,24 +2995,35 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
       if (!Node) {
         return nullptr;
       }
-      for (UEdGraphPin* Pin : Node->Pins) {
+      auto MatchesPin = [&](UEdGraphPin* Pin, bool bPreferObjectPins) {
         if (!Pin || Pin->Direction != Direction) {
-          continue;
+          return false;
         }
         if (bExecPinsOnly &&
             Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Exec) {
-          continue;
+          return false;
         }
-        if (!bExecPinsOnly && bObjectPinsPreferred &&
+        if (!bExecPinsOnly && bPreferObjectPins &&
             Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Object &&
             Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Interface &&
             Pin->PinType.PinCategory != UEdGraphSchema_K2::PC_Class) {
-          continue;
+          return false;
         }
-        return Pin;
+        return true;
+      };
+
+      for (UEdGraphPin* Pin : Node->Pins) {
+        if (MatchesPin(Pin, bObjectPinsPreferred)) {
+          return Pin;
+        }
       }
+
       if (!bExecPinsOnly && bObjectPinsPreferred) {
-        return FindFirstPin(Node, Direction, false, false);
+        for (UEdGraphPin* Pin : Node->Pins) {
+          if (MatchesPin(Pin, false)) {
+            return Pin;
+          }
+        }
       }
       return nullptr;
     };

@@ -853,10 +853,14 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
     case 'list_graphs':
     case 'set_pin_default_value':
     case 'list_comment_groups':
+    case 'create_comment_group':
+    case 'update_comment_group':
     case 'find_nodes':
     case 'disconnect_subgraph':
     case 'disable_subgraph':
     case 'duplicate_subgraph':
+    case 'collapse_to_subgraph':
+    case 'expand_collapsed_node':
     case 'create_config_binding_cluster': {
       // Normalize blueprintPath to assetPath for C++ handler compatibility
       const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name;

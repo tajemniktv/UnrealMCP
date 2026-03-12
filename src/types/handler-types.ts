@@ -630,6 +630,14 @@ export interface GraphArgs extends HandlerArgs {
     properties?: Record<string, unknown>;
     commentNodeId?: string;
     nodeIds?: string[];
+    commentTitle?: string;
+    commentText?: string;
+    tags?: string[];
+    moveMode?: string;
+    commentColor?: Record<string, unknown>;
+    fontSize?: number;
+    padding?: number;
+    newGraphName?: string;
     direction?: 'incoming' | 'outgoing' | 'both';
     dryRun?: boolean;
     offsetX?: number;
@@ -648,7 +656,6 @@ export interface GraphArgs extends HandlerArgs {
     bindFunction?: string;
     bindClass?: string;
     query?: string;
-    commentTitle?: string;
     commentTag?: string;
     nodeTitle?: string;
     nodeTypeFilter?: string;
