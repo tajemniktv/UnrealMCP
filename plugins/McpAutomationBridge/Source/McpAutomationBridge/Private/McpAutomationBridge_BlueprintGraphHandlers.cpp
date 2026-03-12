@@ -1336,9 +1336,50 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
       return true;
     }
 
+    if (NodeType == TEXT("Branch") || NodeType == TEXT("IfThenElse") ||
+        NodeType == TEXT("K2Node_IfThenElse")) {
+      FGraphNodeCreator<UK2Node_IfThenElse> NodeCreator(*TargetGraph);
+      UK2Node_IfThenElse* BranchNode = NodeCreator.CreateNode(false);
+      FinalizeAndReport(NodeCreator, BranchNode);
+      return true;
+    }
+
+    if (NodeType == TEXT("Sequence") || NodeType == TEXT("ExecutionSequence") ||
+        NodeType == TEXT("K2Node_ExecutionSequence")) {
+      FGraphNodeCreator<UK2Node_ExecutionSequence> NodeCreator(*TargetGraph);
+      UK2Node_ExecutionSequence* SequenceNode = NodeCreator.CreateNode(false);
+      FinalizeAndReport(NodeCreator, SequenceNode);
+      return true;
+    }
+
+    if (NodeType == TEXT("Self") || NodeType == TEXT("GetSelf") ||
+        NodeType == TEXT("K2Node_Self")) {
+      FGraphNodeCreator<UK2Node_Self> NodeCreator(*TargetGraph);
+      UK2Node_Self* SelfNode = NodeCreator.CreateNode(false);
+      FinalizeAndReport(NodeCreator, SelfNode);
+      return true;
+    }
+
+    if (NodeType == TEXT("Knot") || NodeType == TEXT("Reroute") ||
+        NodeType == TEXT("K2Node_Knot")) {
+      FGraphNodeCreator<UK2Node_Knot> NodeCreator(*TargetGraph);
+      UK2Node_Knot* RerouteNode = NodeCreator.CreateNode(false);
+      FinalizeAndReport(NodeCreator, RerouteNode);
+      return true;
+    }
+
     // ========== DYNAMIC FALLBACK: Create ANY node class by name ==========
     UClass *NodeClass = FindNodeClassByName(NodeType);
     if (NodeClass) {
+      if (NodeClass->IsChildOf(UK2Node::StaticClass())) {
+        SendAutomationError(
+            RequestingSocket, RequestId,
+            FString::Printf(
+                TEXT("Node type '%s' resolves to '%s', which is not safe for generic K2 instantiation. Use a dedicated create path or add explicit MCP support for this node type."),
+                *NodeType, *NodeClass->GetName()),
+            TEXT("UNSAFE_GENERIC_K2_NODE"));
+        return true;
+      }
       UEdGraphNode *NewNode = NewObject<UEdGraphNode>(TargetGraph, NodeClass);
       if (NewNode) {
         TargetGraph->AddNode(NewNode, false, false);
