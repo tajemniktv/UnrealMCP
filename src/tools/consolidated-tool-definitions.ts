@@ -14,12 +14,12 @@ import { commonSchemas } from './tool-definition-utils.js';
 export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_pipeline',
-    description: 'Build automation and pipeline control. Actions: run_ubt, get_mod_build_targets, build_mod, package_mod, list_categories, get_status. Routes to system_control internally where appropriate.',
+    description: 'Build automation and pipeline control.',
     category: 'core',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['run_ubt', 'get_mod_build_targets', 'build_mod', 'package_mod', 'list_categories', 'get_status'], description: 'run_ubt: compile with UnrealBuildTool. get_mod_build_targets: discover project/mod build targets. build_mod: compile a mod-oriented target. package_mod: run packaging for a mod plugin. list_categories: show available tool categories. get_status: get bridge status.' },
+        action: { type: 'string', enum: ['run_ubt', 'get_mod_build_targets', 'build_mod', 'package_mod', 'list_categories', 'get_status'], description: 'run_ubt: compile with UnrealBuildTool.' },
         target: { type: 'string', description: 'Build target name (e.g., MyProjectEditor)' },
         platform: { type: 'string', description: 'Target platform (Win64, Linux, Mac)' },
         configuration: { type: 'string', description: 'Build configuration (Development, Shipping, Debug)' },
@@ -42,7 +42,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   },
   {
     name: 'manage_tools',
-    description: 'Dynamic MCP tool management. Enable/disable tools and categories at runtime. Actions: list_tools, list_categories, enable_tools, disable_tools, enable_category, disable_category, get_status, reset.',
+    description: 'Dynamic MCP tool management.',
     category: 'core',
     inputSchema: {
       type: 'object',
@@ -50,7 +50,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         action: { 
           type: 'string', 
           enum: ['list_tools', 'list_categories', 'enable_tools', 'disable_tools', 'enable_category', 'disable_category', 'get_status', 'reset'],
-          description: 'list_tools: show all tools with status. list_categories: show categories. enable/disable_tools: toggle specific tools. enable/disable_category: toggle category. get_status: current state. reset: restore defaults.'
+          description: 'list_tools: show all tools with status.'
         },
         tools: { type: 'array', items: commonSchemas.stringProp, description: 'Tool names to enable/disable' },
         category: { type: 'string', description: 'Category name to enable/disable (core, world, authoring, gameplay, utility)' }
@@ -71,7 +71,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_asset',
     category: 'core',
-    description: 'Create, import, duplicate, rename, delete assets. Edit Material graphs and instances. Analyze dependencies.',
+    description: 'Create, import, duplicate, rename, delete assets.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -84,9 +84,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'nanite_rebuild_mesh', 'bulk_rename', 'bulk_delete', 'source_control_checkout', 'source_control_submit',
             'add_material_node', 'connect_material_pins', 'remove_material_node', 'break_material_connections', 'get_material_node_details', 'rebuild_material',
             'list_by_mount_root', 'verify_asset_references'
-          ],
-          description: 'Action to perform'
-        },
+          ]},
         assetPath: commonSchemas.assetPath,
         directory: commonSchemas.directoryPath,
         classNames: commonSchemas.arrayOfStrings,
@@ -332,9 +330,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'attach', 'attach_actor',
             'detach', 'detach_actor',
             'set_actor_collision', 'call_actor_function'
-          ],
-          description: 'Action'
-        },
+          ]},
         actorName: commonSchemas.actorName,
         childActor: commonSchemas.childActorName,
         parentActor: commonSchemas.parentActorName,
@@ -461,9 +457,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'set_metadata', 'load_cells', 'set_datalayer', 'create_datalayer',
             'export_level', 'import_level', 'list_levels', 'get_summary', 'delete', 'delete_level', 'validate_level',
             'cleanup_invalid_datalayers', 'add_sublevel', 'rename_level', 'duplicate_level', 'get_current_level'
-          ],
-          description: 'Action'
-        },
+          ]},
         // Level path parameters
         levelPath: commonSchemas.levelPath,
         levelPaths: commonSchemas.arrayOfStrings,
@@ -486,7 +480,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         shouldBeLoaded: commonSchemas.booleanProp,
         shouldBeVisible: commonSchemas.booleanProp,
         // Light creation
-        lightType: { type: 'string', enum: ['Directional', 'Point', 'Spot', 'Rect', 'DirectionalLight', 'PointLight', 'SpotLight', 'RectLight', 'directional', 'point', 'spot', 'rect'], description: 'Light type. Accepts short names (Point), class names (PointLight), or lowercase (point).' },
+        lightType: { type: 'string', enum: ['Directional', 'Point', 'Spot', 'Rect', 'DirectionalLight', 'PointLight', 'SpotLight', 'RectLight', 'directional', 'point', 'spot', 'rect'], description: 'Light type.' },
         intensity: commonSchemas.numberProp,
         color: commonSchemas.color,
         location: commonSchemas.location,
@@ -540,9 +534,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'modify_heightmap', 'set_landscape_material', 'create_landscape_grass_type',
             'generate_lods', 'bake_lightmap', 'export_snapshot', 'import_snapshot', 'delete',
             'create_sky_sphere', 'set_time_of_day', 'create_fog_volume'
-          ],
-          description: 'Action'
-        },
+          ]},
         name: commonSchemas.name,
         landscapeName: commonSchemas.stringProp,
         heightData: commonSchemas.arrayOfNumbers,
@@ -659,9 +651,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'create_anim_blueprint', 'add_blend_sample', 'set_axis_settings',
             'set_interpolation_settings', 'setup_retargeting',
             'cleanup'
-          ],
-          description: 'Action'
-        },
+          ]},
         name: commonSchemas.name,
         savePath: commonSchemas.savePath,
         skeletonPath: commonSchemas.assetPath,
@@ -750,9 +740,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'play_sound', 'create_widget', 'show_widget', 'add_widget_child',
             'set_cvar', 'get_project_settings', 'validate_assets', 'transport_self_check', 'get_bridge_status', 'get_python_fallback_status', 'run_python_template', 'run_python_code', 'run_python_file',
             'set_project_setting', 'tail_logs'
-          ],
-          description: 'Action'
-        },
+          ]},
         profileType: commonSchemas.stringProp,
         template: commonSchemas.stringProp,
         code: commonSchemas.stringProp,
@@ -811,9 +799,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'add_spawnable_from_class', 'add_track', 'add_section', 'set_display_rate', 'set_tick_resolution',
             'set_work_range', 'set_view_range', 'set_track_muted', 'set_track_solo', 'set_track_locked',
             'list_tracks', 'remove_track', 'list_track_types'
-          ],
-          description: 'Action'
-        },
+          ]},
         name: commonSchemas.name,
         path: commonSchemas.assetPath,
         actorName: commonSchemas.actorName,
@@ -858,7 +844,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_input',
     category: 'utility',
-    description: 'Create Input Actions and Mapping Contexts. Add key/gamepad bindings with modifiers and triggers.',
+    description: 'Create Input Actions and Mapping Contexts.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -875,9 +861,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'enable_input_mapping',
             'disable_input_action',
             'get_input_info'
-          ],
-          description: 'Action to perform'
-        },
+          ]},
         name: commonSchemas.name,
         path: commonSchemas.directoryPath,
         contextPath: commonSchemas.assetPath,
@@ -932,9 +916,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'create_snapshot', 'restore_snapshot', 'export', 'delete_object', 'find_by_class', 'get_bounding_box',
             'get_project_settings', 'get_editor_settings', 'get_mount_points', 'get_world_settings', 'get_viewport_info', 'get_selected_actors',
             'get_scene_stats', 'get_performance_stats', 'get_memory_stats'
-          ],
-          description: 'Action'
-        },
+          ]},
         objectPath: commonSchemas.assetPath,
         propertyName: commonSchemas.propertyName,
         propertyPath: commonSchemas.stringProp,
@@ -1024,9 +1006,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'create_reverb_effect', 'create_source_effect_chain', 'add_source_effect', 'create_submix_effect',
             // Utility
             'get_audio_info'
-          ],
-          description: 'Action'
-        },
+          ]},
         name: commonSchemas.name,
         soundPath: commonSchemas.soundPath,
         location: commonSchemas.location,
@@ -1108,9 +1088,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
       properties: {
         action: {
           type: 'string',
-          enum: ['create', 'add_node', 'connect_nodes', 'remove_node', 'break_connections', 'set_node_properties'],
-          description: 'Action'
-        },
+          enum: ['create', 'add_node', 'connect_nodes', 'remove_node', 'break_connections', 'set_node_properties']},
         name: commonSchemas.name,
         savePath: commonSchemas.savePath,
         assetPath: commonSchemas.assetPath,
@@ -1147,14 +1125,12 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'create_lightmass_volume', 'create_lighting_enabled_level', 'create_dynamic_light',
             'setup_global_illumination', 'configure_shadows', 'set_exposure', 'set_ambient_occlusion', 'setup_volumetric_fog',
             'build_lighting', 'list_light_types'
-          ],
-          description: 'Action'
-        },
+          ]},
         name: commonSchemas.name,
         location: commonSchemas.location,
         rotation: commonSchemas.rotation,
-        lightType: { type: 'string', enum: ['Directional', 'Point', 'Spot', 'Rect', 'DirectionalLight', 'PointLight', 'SpotLight', 'RectLight', 'directional', 'point', 'spot', 'rect'], description: 'Light type. Accepts short names (Point), class names (PointLight), or lowercase (point).' },
-        lightClass: { type: 'string', description: 'Unreal light class name (e.g., PointLight, SpotLight). Alternative to lightType.' },
+        lightType: { type: 'string', enum: ['Directional', 'Point', 'Spot', 'Rect', 'DirectionalLight', 'PointLight', 'SpotLight', 'RectLight', 'directional', 'point', 'spot', 'rect'], description: 'Light type.' },
+        lightClass: { type: 'string', description: 'Unreal light class name (e.g., PointLight, SpotLight).' },
         intensity: commonSchemas.numberProp,
         color: commonSchemas.color,
         castShadows: commonSchemas.booleanProp,
@@ -1216,9 +1192,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'set_scalability', 'set_resolution_scale', 'set_vsync', 'set_frame_rate_limit', 'enable_gpu_timing',
             'configure_texture_streaming', 'configure_lod', 'apply_baseline_settings', 'optimize_draw_calls', 'merge_actors',
             'configure_occlusion_culling', 'optimize_shaders', 'configure_nanite', 'configure_world_partition'
-          ],
-          description: 'Action'
-        },
+          ]},
         type: { type: 'string', enum: ['CPU', 'GPU', 'Memory', 'RenderThread', 'GameThread', 'All'] },
         duration: commonSchemas.numberProp,
         outputPath: commonSchemas.outputPath,
@@ -1326,9 +1300,9 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         targetTriangleCount: { type: 'number', description: 'Target triangle count for simplification.' },
         targetEdgeLength: { type: 'number', description: 'Target edge length for remeshing.' },
         weldDistance: { type: 'number', description: 'Distance threshold for vertex welding.' },
-        faceIndices: { type: 'array', items: commonSchemas.numberProp, description: 'Array of face indices.' },
-        edgeIndices: { type: 'array', items: commonSchemas.numberProp, description: 'Array of edge indices.' },
-        vertexIndices: { type: 'array', items: commonSchemas.numberProp, description: 'Array of vertex indices.' },
+        faceIndices: { type: 'array', items: commonSchemas.numberProp, description: 'arr: face indices.' },
+        edgeIndices: { type: 'array', items: commonSchemas.numberProp, description: 'arr: edge indices.' },
+        vertexIndices: { type: 'array', items: commonSchemas.numberProp, description: 'arr: vertex indices.' },
         selectionBox: { type: 'object', properties: { min: commonSchemas.objectProp, max: commonSchemas.objectProp }, description: 'Bounding box for selection.' },
         uvChannel: { type: 'number', description: 'UV channel index (0-7).' },
         uvScale: { type: 'object', properties: { u: commonSchemas.numberProp, v: commonSchemas.numberProp }, description: 'UV scale.' },
@@ -1345,7 +1319,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         lodIndex: { type: 'number', description: 'Specific LOD index to configure.' },
         reductionPercent: { type: 'number', description: 'Percent of triangles to reduce per LOD.' },
         screenSize: { type: 'number', description: 'Screen size threshold for LOD switching.' },
-        screenSizes: { type: 'array', items: commonSchemas.numberProp, description: 'Array of screen sizes for each LOD.' },
+        screenSizes: { type: 'array', items: commonSchemas.numberProp, description: 'arr: screen sizes for each LOD.' },
         preserveBorders: { type: 'boolean', description: 'Preserve mesh borders during LOD generation.' },
         preserveUVs: { type: 'boolean', description: 'Preserve UV seams during LOD generation.' },
         exportFormat: { type: 'string', enum: ['FBX', 'OBJ', 'glTF', 'USD'], description: 'Export file format.' },
@@ -1429,8 +1403,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         relativeRotation: commonSchemas.rotation,
         relativeScale: commonSchemas.scale,
         vertexIndex: { type: 'number', description: 'Vertex index for weight operations.' },
-        vertexIndices: { type: 'array', items: commonSchemas.numberProp, description: 'Array of vertex indices.' },
-        weights: { type: 'array', items: commonSchemas.objectProp, description: 'Array of {boneIndex, weight} pairs.' },
+        vertexIndices: { type: 'array', items: commonSchemas.numberProp, description: 'arr: vertex indices.' },
+        weights: { type: 'array', items: commonSchemas.objectProp, description: 'arr: {boneIndex, weight} pairs.' },
         threshold: { type: 'number', description: 'Weight threshold for pruning (0-1).' },
         mirrorAxis: { type: 'string', enum: ['X', 'Y', 'Z'], description: 'Axis for weight mirroring.' },
         mirrorTable: { type: 'object', description: 'Bone name mapping for mirroring.' },
@@ -1457,7 +1431,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'Constraint angular limits.'
         },
         morphTargetName: commonSchemas.morphTargetName,
-        deltas: { type: 'array', items: commonSchemas.objectProp, description: 'Array of {vertexIndex, delta} for morph target.' },
+        deltas: { type: 'array', items: commonSchemas.objectProp, description: 'arr: {vertexIndex, delta} for morph target.' },
         paintValue: { type: 'number', description: 'Cloth weight paint value (0-1).' },
         save: commonSchemas.save,
         overwrite: commonSchemas.overwrite
@@ -1548,7 +1522,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         parentMaterial: { type: 'string', description: 'Path to parent material for instances.' },
         layerName: commonSchemas.layerName,
         blendType: { type: 'string', enum: ['LB_WeightBlend', 'LB_AlphaBlend', 'LB_HeightBlend'], description: 'Landscape layer blend type.' },
-        layers: { type: 'array', items: commonSchemas.objectProp, description: 'Array of layer configurations for layer blend.' },
+        layers: { type: 'array', items: commonSchemas.objectProp, description: 'arr: layer configurations for layer blend.' },
         save: commonSchemas.save
       },
       required: ['action']
@@ -1615,7 +1589,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         centerX: { type: 'number', description: 'Center X position (0-1) for radial gradient.' },
         centerY: { type: 'number', description: 'Center Y position (0-1) for radial gradient.' },
         radius: commonSchemas.radius,
-        colorStops: { type: 'array', items: commonSchemas.objectProp, description: 'Array of {position, color} for multi-color gradients.' },
+        colorStops: { type: 'array', items: commonSchemas.objectProp, description: 'arr: {position, color} for multi-color gradients.' },
         patternType: { type: 'string', enum: ['Checker', 'Grid', 'Brick', 'Tile', 'Dots', 'Stripes'], description: 'Type of pattern.' },
         primaryColor: { type: 'object', description: 'Primary pattern color {r, g, b, a}.' },
         secondaryColor: { type: 'object', description: 'Secondary pattern color {r, g, b, a}.' },
@@ -1641,11 +1615,11 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         gamma: { type: 'number', description: 'Gamma correction value.' },
         outputBlackPoint: { type: 'number', description: 'Output black point (0-1).' },
         outputWhitePoint: { type: 'number', description: 'Output white point (0-1).' },
-        curvePoints: { type: 'array', items: commonSchemas.objectProp, description: 'Array of {x, y} curve control points.' },
+        curvePoints: { type: 'array', items: commonSchemas.objectProp, description: 'arr: {x, y} curve control points.' },
         blurType: { type: 'string', enum: ['Gaussian', 'Box', 'Radial'], description: 'Type of blur.' },
         sharpenType: { type: 'string', enum: ['UnsharpMask', 'Laplacian'], description: 'Type of sharpening.' },
         channel: { type: 'string', enum: ['All', 'Red', 'Green', 'Blue', 'Alpha'], description: 'Target channel.' },
-        invertAlpha: { type: 'boolean', description: 'Whether to invert alpha channel.' },
+        invertAlpha: { type: 'boolean', description: 'if invert alpha channel.' },
         amount: { type: 'number', description: 'Effect amount (0-1 for desaturate).' },
         method: { type: 'string', enum: ['Luminance', 'Average', 'Lightness'], description: 'Desaturation method.' },
         outputAsGrayscale: { type: 'boolean', description: 'Output extracted channel as grayscale.' },
@@ -1714,7 +1688,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_effect',
     category: 'gameplay',
-    description: 'Niagara particle systems, VFX, debug shapes, and GPU simulations. Create systems, emitters, modules, and control particle effects.',
+    description: 'Niagara particle systems, VFX, debug shapes, and GPU simulations.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -2089,8 +2063,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         soundPath: commonSchemas.soundPath,
         cameraShakePath: commonSchemas.cameraShakePath,
         decalPath: commonSchemas.decalPath,
-        tagName: commonSchemas.tagName,
-      },
+        tagName: commonSchemas.tagName},
       required: ['action']
     },
     outputSchema: {
@@ -2164,31 +2137,16 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         capsuleRadius: commonSchemas.numberProp,
         capsuleHalfHeight: commonSchemas.numberProp,
         meshOffset: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp,
-            y: commonSchemas.numberProp,
-            z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Mesh location offset.'
         },
         meshRotation: {
-          type: 'object',
-          properties: {
-            pitch: commonSchemas.numberProp,
-            yaw: commonSchemas.numberProp,
-            roll: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.rotation.properties,
           description: 'Mesh rotation offset.'
         },
         cameraSocketName: commonSchemas.cameraSocketName,
         cameraOffset: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp,
-            y: commonSchemas.numberProp,
-            z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Camera location offset.'
         },
         cameraUsePawnControlRotation: { type: 'boolean', description: 'Camera follows controller rotation.' },
@@ -2315,7 +2273,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         attachmentSocketNames: {
           type: 'array',
           items: commonSchemas.stringProp,
-          description: 'List of attachment socket names.'
+          description: 'list: attachment socket names.'
         },
         baseDamage: commonSchemas.numberProp,
         fireRate: commonSchemas.numberProp,
@@ -2668,12 +2626,12 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         massTraits: {
           type: 'array',
           items: commonSchemas.stringProp,
-          description: 'List of Mass traits to add.'
+          description: 'list: Mass traits to add.'
         },
         massProcessors: {
           type: 'array',
           items: commonSchemas.stringProp,
-          description: 'List of Mass processors to configure.'
+          description: 'list: Mass processors to configure.'
         },
         spawnerSettings: {
           type: 'object',
@@ -3004,7 +2962,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_interaction',
     category: 'gameplay',
-    description: 'Create interactive objects: doors, switches, chests, levers. Set up destructible meshes and trigger volumes.',
+    description: 'Create interactive objects: doors, switches, chests, levers.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3181,7 +3139,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_widget_authoring',
     category: 'utility',
-    description: 'Create UMG widgets: buttons, text, images, sliders. Configure layouts, bindings, animations. Build HUDs and menus.',
+    description: 'Create UMG widgets: buttons, text, images, sliders.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3279,8 +3237,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         },
         alignmentX: { type: 'number', description: 'Horizontal alignment (0-1).' },
         alignmentY: { type: 'number', description: 'Vertical alignment (0-1).' },
-        positionX: { type: 'number', description: 'X position.' },
-        positionY: { type: 'number', description: 'Y position.' },
+        positionX: { type: 'number'},
+        positionY: { type: 'number'},
         sizeX: { type: 'number', description: 'Width.' },
         sizeY: { type: 'number', description: 'Height.' },
         sizeToContent: { type: 'boolean', description: 'Size to content.' },
@@ -3817,7 +3775,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_game_framework',
     category: 'utility',
-    description: 'Create GameMode, GameState, PlayerController, PlayerState Blueprints. Configure match flow, teams, scoring, and spawning.',
+    description: 'Create GameMode, GameState, PlayerController, PlayerState Blueprints.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3850,7 +3808,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         hudClass: { type: 'string', description: 'HUD class path.' },
         timeLimit: commonSchemas.numberProp,
         scoreLimit: commonSchemas.numberProp,
-        bDelayedStart: { type: 'boolean', description: 'Whether to delay match start.' },
+        bDelayedStart: { type: 'boolean', description: 'if delay match start.' },
         startPlayersNeeded: commonSchemas.numberProp,
         states: {
           type: 'array',
@@ -4052,7 +4010,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_level_structure',
     category: 'world',
-    description: 'Create levels and sublevels. Configure World Partition, streaming, data layers, HLOD, and level instances.',
+    description: 'Create levels and sublevels.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -4090,19 +4048,13 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           enum: ['Loading', 'LoadingAndVisibility', 'VisibilityBlockingOnLoad', 'BlockingOnLoad', 'LoadingNotVisible'],
           description: 'Streaming volume usage mode (default: LoadingAndVisibility).'
         },
-        createVolume: { type: 'boolean', description: 'Create a streaming volume (true) or just report existing volumes (false). Default: true.' },
+        createVolume: { type: 'boolean', description: 'Create a streaming volume (true) or just report existing volumes (false).' },
         boundsOrigin: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Origin of level bounds.'
         },
         boundsExtent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Extent of level bounds.'
         },
         bAutoCalculateBounds: { type: 'boolean', description: 'Auto-calculate bounds from content.' },
@@ -4127,17 +4079,11 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         loadingDistance: { type: 'number', description: 'HLOD loading distance.' },
         volumeName: commonSchemas.volumeName,
         volumeLocation: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Location of the volume.'
         },
         volumeExtent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Extent of the volume.'
         },
         nodeClass: commonSchemas.nodeClass,
@@ -4156,24 +4102,15 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         levelInstanceName: commonSchemas.levelInstanceName,
         levelAssetPath: { type: 'string', description: 'Path to the level asset for instancing.' },
         instanceLocation: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Location of the level instance.'
         },
         instanceRotation: {
-          type: 'object',
-          properties: {
-            pitch: commonSchemas.numberProp, yaw: commonSchemas.numberProp, roll: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.rotation.properties,
           description: 'Rotation of the level instance.'
         },
         instanceScale: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Scale of the level instance.'
         },
         packedLevelName: { type: 'string', description: 'Name for the packed level actor.' },
@@ -4262,34 +4199,22 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         volumePath: commonSchemas.volumePath,
         actorPath: commonSchemas.actorPath, // For add_*_volume actions that attach to existing actors
         location: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'World location for the volume.'
         },
         rotation: {
-          type: 'object',
-          properties: {
-            pitch: commonSchemas.numberProp, yaw: commonSchemas.numberProp, roll: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.rotation.properties,
           description: 'Rotation of the volume.'
         },
         extent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Extent (half-size) of the volume in each axis.'
         },
         sphereRadius: { type: 'number', description: 'Radius for sphere trigger volumes.' },
         capsuleRadius: { type: 'number', description: 'Radius for capsule trigger volumes.' },
         capsuleHalfHeight: { type: 'number', description: 'Half-height for capsule trigger volumes.' },
         boxExtent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Extent for box trigger volumes.'
         },
         bPainCausing: { type: 'boolean', description: 'Whether the volume causes pain/damage.' },
@@ -4312,7 +4237,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
               cullDistance: { type: 'number', description: 'Distance at which to cull.' }
             }
           },
-          description: 'Array of size/distance pairs for cull distance volumes.'
+          description: 'arr: size/distance pairs for cull distance volumes.'
         },
         areaClass: commonSchemas.areaClass,
         bDynamicModifier: { type: 'boolean', description: 'Whether nav modifier updates dynamically.' },
@@ -4349,16 +4274,10 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
                   name: commonSchemas.stringProp,
                   class: commonSchemas.stringProp,
                   location: {
-                    type: 'object',
-                    properties: {
-                      x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-                    }
+                    type: 'object', properties: commonSchemas.vector3.properties
                   },
                   extent: {
-                    type: 'object',
-                    properties: {
-                      x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-                    }
+                    type: 'object', properties: commonSchemas.vector3.properties
                   }
                 }
               }
@@ -4406,10 +4325,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         areaClass: commonSchemas.areaClass,
         areaClassToReplace: { type: 'string', description: 'Area class to replace (optional modifier behavior).' },
         failsafeExtent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Failsafe extent for nav modifier when actor has no collision.'
         },
         bIncludeAgentHeight: { type: 'boolean', description: 'Expand lower bounds by agent height.' },
@@ -4417,17 +4333,11 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         fixedAreaEnteringCost: { type: 'number', description: 'Fixed cost added when entering the area.' },
         linkName: commonSchemas.linkName,
         startPoint: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Start point of navigation link (relative to actor).'
         },
         endPoint: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'End point of navigation link (relative to actor).'
         },
         direction: {
@@ -4449,32 +4359,20 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         broadcastInterval: { type: 'number', description: 'Interval for state change broadcast (0 = single).' },
         bCreateBoxObstacle: { type: 'boolean', description: 'Add box obstacle during nav generation.' },
         obstacleOffset: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Offset of simple box obstacle.'
         },
         obstacleExtent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Extent of simple box obstacle.'
         },
         obstacleAreaClass: { type: 'string', description: 'Area class for box obstacle.' },
         location: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'World location for nav link proxy.'
         },
         rotation: {
-          type: 'object',
-          properties: {
-            pitch: commonSchemas.numberProp, yaw: commonSchemas.numberProp, roll: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.rotation.properties,
           description: 'Rotation for nav link proxy.'
         },
         filter: commonSchemas.filter,
@@ -4537,67 +4435,40 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         componentName: commonSchemas.componentName,
         blueprintPath: commonSchemas.blueprintPath,
         location: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Location for spline actor.'
         },
         rotation: {
-          type: 'object',
-          properties: {
-            pitch: commonSchemas.numberProp, yaw: commonSchemas.numberProp, roll: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.rotation.properties,
           description: 'Rotation for spline actor.'
         },
         scale: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Scale for spline actor.'
         },
         pointIndex: { type: 'number', description: 'Index of spline point to modify.' },
         position: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Position for spline point.'
         },
         arriveTangent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Arrive tangent for spline point (incoming direction).'
         },
         leaveTangent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Leave tangent for spline point (outgoing direction).'
         },
         tangent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Unified tangent (sets both arrive and leave).'
         },
         pointRotation: {
-          type: 'object',
-          properties: {
-            pitch: commonSchemas.numberProp, yaw: commonSchemas.numberProp, roll: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.rotation.properties,
           description: 'Rotation at spline point.'
         },
         pointScale: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Scale at spline point.'
         },
         coordinateSpace: {
@@ -4620,31 +4491,19 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           description: 'Forward axis for spline mesh deformation.'
         },
         startPos: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Start position for spline mesh segment.'
         },
         startTangent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'Start tangent for spline mesh segment.'
         },
         endPos: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'End position for spline mesh segment.'
         },
         endTangent: {
-          type: 'object',
-          properties: {
-            x: commonSchemas.numberProp, y: commonSchemas.numberProp, z: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.vector3.properties,
           description: 'End tangent for spline mesh segment.'
         },
         startScale: {
@@ -4657,8 +4516,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           properties: commonSchemas.vector2.properties,
           description: 'X/Y scale at spline mesh end.'
         },
-        startRoll: { type: 'number', description: 'Roll angle at spline mesh start (radians).' },
-        endRoll: { type: 'number', description: 'Roll angle at spline mesh end (radians).' },
+        startRoll: { type: 'number'},
+        endRoll: { type: 'number'},
         bSmoothInterpRollScale: { type: 'boolean', description: 'Use smooth interpolation for roll/scale.' },
         spacing: { type: 'number', description: 'Distance between scattered meshes.' },
         startOffset: { type: 'number', description: 'Offset from spline start for first mesh.' },
@@ -4666,10 +4525,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         bAlignToSpline: { type: 'boolean', description: 'Align scattered meshes to spline direction.' },
         bRandomizeRotation: { type: 'boolean', description: 'Apply random rotation to scattered meshes.' },
         rotationRandomRange: {
-          type: 'object',
-          properties: {
-            pitch: commonSchemas.numberProp, yaw: commonSchemas.numberProp, roll: commonSchemas.numberProp
-          },
+          type: 'object', properties: commonSchemas.rotation.properties,
           description: 'Random rotation range (degrees).'
         },
         bRandomizeScale: { type: 'boolean', description: 'Apply random scale to scattered meshes.' },
@@ -4719,7 +4575,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             },
             required: ['position']
           },
-          description: 'Array of spline points for batch creation.'
+          description: 'arr: spline points for batch creation.'
         },
         filter: commonSchemas.filter,
         save: commonSchemas.save
@@ -4770,7 +4626,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
               forwardAxis: commonSchemas.stringProp
             }
           },
-          description: 'List of spline mesh components.'
+          description: 'list: spline mesh components.'
         },
         scatteredMeshes: { type: 'number', description: 'Number of meshes scattered along spline.' },
         error: commonSchemas.stringProp
