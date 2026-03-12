@@ -15,7 +15,8 @@ export const PYTHON_TEMPLATE_NAMES = [
   'run_editor_utility',
   'validate_selected_assets',
   'audit_assets_in_path',
-  'audit_mod_config_asset'
+  'audit_mod_config_asset',
+  'mcp_blueprint'
 ] as const;
 
 export type PythonTemplateName = typeof PYTHON_TEMPLATE_NAMES[number];
