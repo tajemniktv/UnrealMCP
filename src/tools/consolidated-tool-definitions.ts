@@ -15,11 +15,11 @@ import { commonSchemas } from './tool-definition-utils.js';
 const blueprintGraphActionEnum = [
   'create_node', 'add_node', 'delete_node', 'connect_pins', 'break_pin_links', 'set_node_property', 'create_reroute_node',
   'get_node_details', 'get_graph_details', 'get_pin_details', 'get_nodes', 'get_connections', 'get_graph_topology',
-  'list_node_types', 'list_graphs', 'set_pin_default_value',
+  'list_node_types', 'list_graphs', 'list_all_graphs', 'set_pin_default_value',
   'list_comment_groups', 'create_comment_group', 'update_comment_group',
   'find_nodes', 'find_nodes_by_title_comment_class', 'find_call_function_nodes',
   'disconnect_subgraph', 'disable_subgraph', 'duplicate_subgraph', 'collapse_to_subgraph', 'expand_collapsed_node',
-  'retarget_binding_cluster', 'replace_binding_cluster', 'create_config_binding_cluster', 'summarize_migration_stage', 'batch_graph_actions'
+  'retarget_binding_cluster', 'replace_binding_cluster', 'create_config_binding_cluster', 'bind_config_property_to_event', 'create_add_delegate', 'summarize_migration_stage', 'batch_graph_actions'
 ] as const;
 
 const modConfigActionEnum = [
