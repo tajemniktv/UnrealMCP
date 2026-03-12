@@ -31,9 +31,9 @@ import { dynamicToolManager } from '../tools/dynamic-tool-manager.js';
 
 // Parse default categories from config
 function parseDefaultCategories(): string[] {
-    const raw = config.MCP_DEFAULT_CATEGORIES || 'core';
+    const raw = config.MCP_DEFAULT_CATEGORIES || 'core,world,authoring,gameplay,utility';
     const cats = raw.split(',').map(c => c.trim().toLowerCase()).filter(c => c.length > 0);
-    return cats.length > 0 ? cats : ['core'];
+    return cats.length > 0 ? cats : ['core', 'world', 'authoring', 'gameplay', 'utility'];
 }
 
 // Check if a client supports tools.listChanged based on known client capabilities

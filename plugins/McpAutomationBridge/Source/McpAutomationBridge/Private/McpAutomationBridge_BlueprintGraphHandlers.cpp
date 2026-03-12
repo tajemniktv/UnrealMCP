@@ -1043,12 +1043,26 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
       // Return early with error if function not found (before NodeCreator)
       if (!Func) {
-        SendAutomationError(
-            RequestingSocket, RequestId,
-            FString::Printf(
-                TEXT("Could not find function '%s::%s' for node type '%s'"),
-                *ClassName, *FuncName, *NodeType),
-            TEXT("FUNCTION_NOT_FOUND"));
+
+        FString SuggestionStr;
+        if (ClassObj) {
+            TArray<FString> FuncSuggestions;
+            for (TFieldIterator<UFunction> FuncIt(ClassObj, EFieldIteratorFlags::IncludeSuper); FuncIt; ++FuncIt) {
+              FString FoundFuncName = FuncIt->GetName();
+              if (FoundFuncName.Contains(FuncName) || FuncName.Contains(FoundFuncName)) {
+                FuncSuggestions.Add(FoundFuncName);
+              }
+            }
+            for (int32 i = 0; i < FMath::Min(5, FuncSuggestions.Num()); ++i) {
+              SuggestionStr += FuncSuggestions[i] + (i < FMath::Min(5, FuncSuggestions.Num()) - 1 ? TEXT(", ") : TEXT(""));
+            }
+        }
+        FString ErrorMsg = FString::Printf(TEXT("Could not find function '%s::%s' for node type '%s'."), *ClassName, *FuncName, *NodeType);
+        if (!SuggestionStr.IsEmpty()) {
+          ErrorMsg += FString::Printf(TEXT(" Did you mean: %s?"), *SuggestionStr);
+        }
+        SendAutomationError(RequestingSocket, RequestId, ErrorMsg, TEXT("FUNCTION_NOT_FOUND"));
+
         return true;
       }
 
@@ -1109,7 +1123,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     };
 
     // Helper: Try to find a UK2Node subclass by name
-    auto FindNodeClassByName = [](const FString &TypeName) -> UClass * {
+
+    auto FindNodeClassByName = [](const FString &TypeName, TArray<FString>& OutSuggestions) -> UClass * {
       // First check for aliases
       FString ResolvedName = TypeName;
       if (const FString *Alias = NodeTypeAliases.Find(TypeName)) {
@@ -1127,19 +1142,50 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
         NamesToTry.Add(FString::Printf(TEXT("UK2Node_%s"), *TypeName));
       }
 
+      UClass* BestMatch = nullptr;
+
       for (TObjectIterator<UClass> It; It; ++It) {
         if (!It->IsChildOf(UEdGraphNode::StaticClass()))
           continue;
-        if (It->HasAnyClassFlags(CLASS_Abstract))
+        if (It->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated))
           continue;
 
         FString ClassName = It->GetName();
+
+        // Exact match loop
         for (const FString &NameToMatch : NamesToTry) {
           if (ClassName.Equals(NameToMatch, ESearchCase::IgnoreCase)) {
-            return *It;
+            return *It; // Immediate return on exact match
           }
         }
+
+        // Prefix/Contains match for suggestions
+        if (ClassName.Contains(ResolvedName, ESearchCase::IgnoreCase) ||
+            (ResolvedName.Len() > 2 && ClassName.Contains(ResolvedName.Left(ResolvedName.Len() - 1), ESearchCase::IgnoreCase))) {
+
+            // Prefer K2Nodes for suggestions
+            if (ClassName.StartsWith(TEXT("K2Node_"))) {
+                OutSuggestions.AddUnique(ClassName);
+            } else if (OutSuggestions.Num() < 10) { // Limit non-K2 suggestions to keep it clean
+                OutSuggestions.AddUnique(ClassName);
+            }
+        }
       }
+
+      // Sort suggestions to put K2Nodes first
+      OutSuggestions.Sort([](const FString& A, const FString& B) {
+          bool bAIsK2 = A.StartsWith(TEXT("K2Node_"));
+          bool bBIsK2 = B.StartsWith(TEXT("K2Node_"));
+          if (bAIsK2 && !bBIsK2) return true;
+          if (!bAIsK2 && bBIsK2) return false;
+          return A.Len() < B.Len(); // Shorter names first
+      });
+
+      // Keep only top 10 suggestions
+      if (OutSuggestions.Num() > 10) {
+          OutSuggestions.SetNum(10);
+      }
+
       return nullptr;
     };
 
@@ -1233,10 +1279,26 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
         CallFuncNode->SetFromFunction(Func);
         FinalizeAndReport(NodeCreator, CallFuncNode);
       } else {
-        SendAutomationError(
-            RequestingSocket, RequestId,
-            FString::Printf(TEXT("Function '%s' not found"), *MemberName),
-            TEXT("FUNCTION_NOT_FOUND"));
+
+              TArray<FString> FuncSuggestions;
+              if (FunctionClass) {
+                for (TFieldIterator<UFunction> FuncIt(FunctionClass, EFieldIteratorFlags::IncludeSuper); FuncIt; ++FuncIt) {
+                  FString FoundFuncName = FuncIt->GetName();
+                  if (FoundFuncName.Contains(MemberName) || MemberName.Contains(FoundFuncName)) {
+                    FuncSuggestions.Add(FoundFuncName);
+                  }
+                }
+              }
+              FString SuggestionStr;
+              for (int32 i = 0; i < FMath::Min(5, FuncSuggestions.Num()); ++i) {
+                SuggestionStr += FuncSuggestions[i] + (i < FMath::Min(5, FuncSuggestions.Num()) - 1 ? TEXT(", ") : TEXT(""));
+              }
+              FString ErrorMsg = FString::Printf(TEXT("Function '%s' not found."), *MemberName);
+              if (!SuggestionStr.IsEmpty()) {
+                ErrorMsg += FString::Printf(TEXT(" Did you mean: %s?"), *SuggestionStr);
+              }
+              SendAutomationError(RequestingSocket, RequestId, ErrorMsg, TEXT("FUNCTION_NOT_FOUND"));
+
       }
       return true;
     }
@@ -1369,7 +1431,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     }
 
     // ========== DYNAMIC FALLBACK: Create ANY node class by name ==========
-    UClass *NodeClass = FindNodeClassByName(NodeType);
+    TArray<FString> NodeSuggestions;
+    UClass *NodeClass = FindNodeClassByName(NodeType, NodeSuggestions);
     if (NodeClass) {
       if (NodeClass->IsChildOf(UK2Node::StaticClass())) {
         SendAutomationError(
@@ -1401,12 +1464,16 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
                             TEXT("CREATE_FAILED"));
       }
     } else {
-      SendAutomationError(
-          RequestingSocket, RequestId,
-          FString::Printf(TEXT("Node type '%s' not found. Use list_node_types "
-                               "to see available types."),
-                          *NodeType),
-          TEXT("NODE_TYPE_NOT_FOUND"));
+      FString SuggestionStr;
+      for (int32 i = 0; i < FMath::Min(5, NodeSuggestions.Num()); ++i) {
+        SuggestionStr += NodeSuggestions[i] + (i < FMath::Min(5, NodeSuggestions.Num()) - 1 ? TEXT(", ") : TEXT(""));
+      }
+      FString Msg = FString::Printf(TEXT("Node type '%s' not found."), *NodeType);
+      if (!SuggestionStr.IsEmpty()) {
+        Msg += FString::Printf(TEXT(" Did you mean: %s?"), *SuggestionStr);
+      }
+      Msg += TEXT(" Use list_node_types to see available types.");
+      SendAutomationError(RequestingSocket, RequestId, Msg, TEXT("NODE_TYPE_NOT_FOUND"));
     }
     return true;
   } else if (SubAction == TEXT("connect_pins")) {
