@@ -9,6 +9,7 @@ import { HealthMonitor } from '../services/health-monitor.js';
 import { findPluginDescriptorByRoot, findProjectContext, listPluginDescriptors, summarizeDescriptor } from '../tools/handlers/modding-utils.js';
 import { dynamicToolManager } from '../tools/dynamic-tool-manager.js';
 import { getPythonFallbackConfig } from '../python-fallback.js';
+import { consolidatedToolDefinitions } from '../tools/consolidated-tool-definitions.js';
 
 export class ResourceHandler {
   constructor(
@@ -247,6 +248,41 @@ export class ResourceHandler {
             uri,
             mimeType: 'application/json',
             text: JSON.stringify({ ...info, toolStatus }, null, 2)
+          }]
+        };
+      }
+
+      if (uri === 'ue://tool-catalog') {
+        const toolStates = dynamicToolManager.listTools();
+        const tools = consolidatedToolDefinitions.map((definition) => {
+          const state = toolStates.find((entry) => entry.name === definition.name);
+          const inputSchema = (definition.inputSchema ?? {}) as Record<string, unknown>;
+          const properties = typeof inputSchema.properties === 'object' && inputSchema.properties !== null
+            ? inputSchema.properties as Record<string, unknown>
+            : {};
+          const actionProperty = properties.action as Record<string, unknown> | undefined;
+          return {
+            name: definition.name,
+            category: definition.category,
+            description: definition.description,
+            stabilityStatus: definition.stabilityStatus ?? state?.stabilityStatus ?? 'safe',
+            availabilityReason: definition.availabilityReason ?? state?.availabilityReason,
+            requiredPlugins: definition.requiredPlugins ?? state?.requiredPlugins,
+            engineVersionRange: definition.engineVersionRange ?? state?.engineVersionRange,
+            enabled: state?.enabled ?? true,
+            actions: Array.isArray(actionProperty?.enum) ? actionProperty.enum : undefined
+          };
+        });
+
+        return {
+          contents: [{
+            uri,
+            mimeType: 'application/json',
+            text: JSON.stringify({
+              generatedAt: new Date().toISOString(),
+              toolCount: tools.length,
+              tools
+            }, null, 2)
           }]
         };
       }

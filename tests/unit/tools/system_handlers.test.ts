@@ -122,6 +122,9 @@ describe('System Handlers', () => {
             }),
             expect.anything()
         );
+        expect(result.stdout).toBe('');
+        expect(result.stderr).toBe('');
+        expect(Array.isArray(result.artifacts)).toBe(true);
     });
 
     it('forwards structured params for python code execution', async () => {
@@ -259,6 +262,35 @@ describe('System Handlers', () => {
                     recursive: true,
                     className: 'StaticMesh',
                     limit: 25
+                }
+            }),
+            expect.anything()
+        );
+    });
+
+    it('wraps list_assets_by_mount_root through the python template path', async () => {
+        vi.spyOn(pythonFallback, 'getPythonFallbackConfig').mockReturnValue({
+            enabled: true,
+            unsafeEnabled: true,
+            timeoutMs: 15000,
+            templates: [...pythonFallback.PYTHON_TEMPLATE_NAMES]
+        });
+
+        const tools = createMockTools() as any;
+        const result = await handleSystemTools('list_assets_by_mount_root', {
+            mountRoot: '/TajsGraph',
+            recursive: true
+        }, tools);
+
+        expect(result.success).toBe(true);
+        expect(tools.bridge.executeEditorFunction).toHaveBeenCalledWith(
+            'RUN_PYTHON_TEMPLATE',
+            expect.objectContaining({
+                templateName: 'list_assets_by_mount_root',
+                templateParams: {
+                    mountRoot: '/TajsGraph',
+                    path: '/TajsGraph',
+                    recursive: true
                 }
             }),
             expect.anything()

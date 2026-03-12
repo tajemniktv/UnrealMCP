@@ -473,6 +473,9 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
           { key: 'classNames' },
           { key: 'packagePaths' },
           { key: 'mountRoot' },
+          { key: 'preferPythonFallback' },
+          { key: 'scopeMode' },
+          { key: 'exactPath' },
           { key: 'recursivePaths' },
           { key: 'recursiveClasses' },
           { key: 'limit' }
@@ -480,6 +483,9 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         const classNames = extractOptionalArray<string>(params, 'classNames');
         const mountRoot = extractOptionalString(params, 'mountRoot');
         const packagePaths = extractOptionalArray<string>(params, 'packagePaths');
+        const exactPath = extractOptionalString(params, 'exactPath');
+        const preferPythonFallback = extractOptionalBoolean(params, 'preferPythonFallback') ?? false;
+        const scopeMode = (extractOptionalString(params, 'scopeMode') ?? (mountRoot || (packagePaths?.length ?? 0) > 0 ? 'strict' : 'global')) as 'strict' | 'prefer' | 'global';
         const effectivePackagePaths = Array.from(new Set([
           ...(packagePaths ?? []),
           ...(mountRoot ? [sanitizePath(mountRoot)] : [])
@@ -487,6 +493,48 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
         const recursivePaths = extractOptionalBoolean(params, 'recursivePaths');
         const recursiveClasses = extractOptionalBoolean(params, 'recursiveClasses');
         const limit = extractOptionalNumber(params, 'limit');
+
+        const bridge = tools.bridge as { executeEditorFunction?: (fn: string, payload: Record<string, unknown>, options?: Record<string, unknown>) => Promise<Record<string, unknown>> } | undefined;
+        if (preferPythonFallback && bridge?.executeEditorFunction && (mountRoot || exactPath || effectivePackagePaths.length > 0)) {
+          const pythonPath = exactPath ?? mountRoot ?? effectivePackagePaths[0];
+          const singleClass = Array.isArray(classNames) && classNames.length === 1 ? classNames[0] : undefined;
+          const templateName = singleClass ? 'find_assets_by_class' : 'list_assets_by_mount_root';
+          const pythonResponse = await bridge.executeEditorFunction('RUN_PYTHON_TEMPLATE', {
+            templateName,
+            templateParams: {
+              path: pythonPath,
+              mountRoot: mountRoot ?? pythonPath,
+              recursive: recursivePaths ?? true,
+              className: singleClass,
+              limit
+            }
+          });
+          const items = Array.isArray(pythonResponse.items)
+            ? pythonResponse.items as Array<unknown>
+            : Array.isArray((pythonResponse.result as Record<string, unknown> | undefined)?.items)
+              ? (pythonResponse.result as Record<string, unknown>).items as Array<unknown>
+              : [];
+          const assets = items
+            .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+            .map((path) => ({ path }));
+
+          return cleanObject({
+            success: pythonResponse.success !== false,
+            assets,
+            count: assets.length,
+            effectiveSearchScope: {
+              scopeMode,
+              packagePaths: effectivePackagePaths.map((entry) => sanitizePath(entry)),
+              mountRoot: mountRoot ? sanitizePath(mountRoot) : undefined,
+              exactPath,
+              transport: 'python_template',
+              templateName
+            },
+            pythonFallback: true,
+            message: 'Assets found via Python fallback'
+          });
+        }
+
         const res = await executeAutomationRequest(tools, 'asset_query', {
           classNames,
           packagePaths: effectivePackagePaths,
@@ -495,7 +543,45 @@ export async function handleAssetTools(action: string, args: HandlerArgs, tools:
           limit,
           subAction: 'search_assets'
         }) as AssetOperationResponse;
-        return ResponseFactory.success(res, 'Assets found');
+        const rawAssets = Array.isArray((res as Record<string, unknown>).assets)
+          ? ((res as Record<string, unknown>).assets as Array<Record<string, unknown>>)
+          : [];
+        const normalizedScopeRoots = effectivePackagePaths.map((entry) => sanitizePath(entry));
+        const filteredAssets = rawAssets.filter((asset) => {
+          const assetPath = typeof asset.path === 'string'
+            ? asset.path
+            : typeof asset.assetPath === 'string'
+              ? asset.assetPath
+              : typeof asset.objectPath === 'string'
+                ? asset.objectPath
+                : '';
+          if (!assetPath) return scopeMode !== 'strict';
+          if (exactPath && assetPath !== exactPath) return false;
+          if (scopeMode === 'global' || normalizedScopeRoots.length === 0) return true;
+          const inScope = normalizedScopeRoots.some((root) => assetPath.startsWith(root));
+          return scopeMode === 'strict' ? inScope : true;
+        }).sort((a, b) => {
+          if (scopeMode !== 'prefer' || normalizedScopeRoots.length === 0) return 0;
+          const aPath = typeof a.path === 'string' ? a.path : '';
+          const bPath = typeof b.path === 'string' ? b.path : '';
+          const aInScope = normalizedScopeRoots.some((root) => aPath.startsWith(root));
+          const bInScope = normalizedScopeRoots.some((root) => bPath.startsWith(root));
+          if (aInScope === bInScope) return 0;
+          return aInScope ? -1 : 1;
+        });
+
+        return cleanObject({
+          ...res,
+          assets: filteredAssets,
+          count: filteredAssets.length,
+          effectiveSearchScope: {
+            scopeMode,
+            packagePaths: normalizedScopeRoots,
+            mountRoot: mountRoot ? sanitizePath(mountRoot) : undefined,
+            exactPath
+          },
+          message: 'Assets found'
+        });
       }
       case 'list_by_mount_root': {
         const params = normalizeArgs(args, [

@@ -24,9 +24,8 @@ Worth adding:
 - nested composite graph traversal helpers
 - better summaries for repeated binding clusters in large EventGraphs
 - graph diffs that summarize control/data-flow changes after mutation
-- deeper recursive nested/composite traversal beyond the current nested-graph discovery/search and explicit composite collapse/expand support
+- deeper mutation-oriented nested/composite traversal beyond the current recursive topology/read support and explicit composite collapse/expand support
 - richer query/filter support layered on top of the new `find_nodes` action, especially for nested composite graphs and repeated binding families
-- node queries by title/comment-group instead of GUID-only follow-up work when the graph is already known to contain repeated binding patterns
 - stronger Blueprint graph access from the Python fallback path, or a documented equivalent graph-introspection API when Blueprint editor properties are not exposed to Python the normal way
 
 Why it matters:
@@ -42,7 +41,6 @@ Worth adding:
 - move or replace a composite binding cluster in one operation
 - extend the current duplicate/retarget/disable helpers beyond literal-pin retargeting into richer project-specific cluster semantics
 - safer isolate/disable flows for legacy subgraphs before deleting them
-- reconnect or retarget external links when duplicating a subgraph
 - comment-group aware “disable without delete” operations
 - reliable cluster stamping for repeated `MC to ConfigProperty -> Cast To ConfigPropertySection -> Binding Composite` flows
 - direct reconnect of an unlinked binding composite by section/key instead of raw pin-level rewiring
@@ -140,7 +138,6 @@ Worth adding:
 - clearer inspection of section/property class paths and editor-facing widget classes
 - config-tree issue summaries that flag plain base classes, suspicious metadata, broken class-load paths, and likely UI-facing config issues
 - a reliable descriptor/export path for populated mod-config assets
-- better support for legacy Blueprint-backed config assets that resolve through `resolve_mod_config_target` but still fail tree/descriptor inspection unless the exact accepted object path variant is known
 
 Why it matters:
 
@@ -334,7 +331,6 @@ Worth adding:
 - optional `preferPythonFallback` behavior for approved tool families where Python is clearly more practical
 - broaden the allowlisted template/script model with validated arguments
 - add stronger structured result/error serialization back into normal MCP response shapes
-- keep the live `system_control` Python entrypoints tolerant of wrapper drift by accepting both direct payload fields and nested `params` fields, plus legacy aliases such as `script` and `path`
 - add more thin editor-scripting utility wrappers on top of Python for common workflow tasks beyond the current editor-utility/content-audit coverage
 - keep explicit safety controls:
   - editor-only

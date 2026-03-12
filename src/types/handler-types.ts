@@ -103,6 +103,10 @@ export interface AssetArgs extends HandlerArgs {
     overwrite?: boolean;
     classNames?: string[];
     packagePaths?: string[];
+    mountRoot?: string;
+    preferPythonFallback?: boolean;
+    scopeMode?: 'strict' | 'prefer' | 'global';
+    exactPath?: string;
     parentMaterial?: string;
     parameters?: Record<string, unknown>;
     assetPaths?: string[];
@@ -139,7 +143,6 @@ export interface AssetArgs extends HandlerArgs {
     // Metadata
     metadata?: Record<string, unknown>;
     tags?: string[];
-    mountRoot?: string;
 }
 
 // ============================================================================
@@ -680,6 +683,9 @@ export interface SystemArgs extends HandlerArgs {
     profileType?: string;
     template?: string;
     params?: Record<string, unknown>;
+    objectPath?: string;
+    mountRoot?: string;
+    preferPythonFallback?: boolean;
     level?: number;
     limit?: number;
     key?: string;

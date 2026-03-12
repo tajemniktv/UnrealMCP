@@ -786,9 +786,38 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
         NodeObj->SetStringField(
             TEXT("nodeTitle"),
             Node->GetNodeTitle(ENodeTitleType::ListView).ToString());
+        NodeObj->SetStringField(TEXT("graphName"),
+                                Node->GetGraph() ? Node->GetGraph()->GetName()
+                                                 : TargetGraph->GetName());
+        NodeObj->SetStringField(TEXT("graphPath"),
+                                Node->GetGraph()
+                                    ? Node->GetGraph()->GetPathName()
+                                    : TargetGraph->GetPathName());
         NodeObj->SetStringField(TEXT("comment"), Node->NodeComment);
         NodeObj->SetNumberField(TEXT("x"), Node->NodePosX);
         NodeObj->SetNumberField(TEXT("y"), Node->NodePosY);
+        if (const UK2Node_CallFunction* CallFunctionNode =
+                Cast<UK2Node_CallFunction>(Node)) {
+          const FString FunctionName =
+              CallFunctionNode->FunctionReference.GetMemberName().ToString();
+          if (!FunctionName.IsEmpty()) {
+            NodeObj->SetStringField(TEXT("functionName"), FunctionName);
+            NodeObj->SetStringField(TEXT("memberName"), FunctionName);
+          }
+          if (const UClass* MemberClass = CallFunctionNode->FunctionReference
+                                               .GetMemberParentClass(
+                                                   CallFunctionNode
+                                                       ->GetBlueprintClassFromNode())) {
+            NodeObj->SetStringField(TEXT("memberClass"), MemberClass->GetName());
+            NodeObj->SetStringField(TEXT("memberClassPath"),
+                                    MemberClass->GetPathName());
+          }
+          if (const UFunction* TargetFunction =
+                  CallFunctionNode->GetTargetFunction()) {
+            NodeObj->SetStringField(TEXT("targetFunctionPath"),
+                                    TargetFunction->GetPathName());
+          }
+        }
         if (const UEdGraphNode_Comment* CommentNode =
                 Cast<UEdGraphNode_Comment>(Node)) {
           NodeObj->SetNumberField(TEXT("width"), CommentNode->NodeWidth);
@@ -2390,12 +2419,64 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     TArray<UEdGraphNode*> SortedImportedNodes =
         SortBlueprintNodes(ImportedNodeSet);
     TSharedPtr<FJsonObject> MappingObj = MakeShared<FJsonObject>();
+    TMap<FString, UEdGraphNode*> ImportedNodeBySourceId;
     const int32 PairCount =
         FMath::Min(SortedSourceNodes.Num(), SortedImportedNodes.Num());
     for (int32 Index = 0; Index < PairCount; ++Index) {
-      MappingObj->SetStringField(
-          SortedSourceNodes[Index]->NodeGuid.ToString(),
-          SortedImportedNodes[Index]->NodeGuid.ToString());
+      const FString SourceNodeId = SortedSourceNodes[Index]->NodeGuid.ToString();
+      MappingObj->SetStringField(SourceNodeId,
+                                 SortedImportedNodes[Index]->NodeGuid.ToString());
+      ImportedNodeBySourceId.Add(SourceNodeId, SortedImportedNodes[Index]);
+    }
+
+    TArray<TSharedPtr<FJsonValue>> ReconnectedLinksJson;
+    if (bReconnectExternalLinks) {
+      for (UEdGraphNode* SourceNode : SortedSourceNodes) {
+        if (!SourceNode) {
+          continue;
+        }
+        UEdGraphNode* const* ImportedNodePtr =
+            ImportedNodeBySourceId.Find(SourceNode->NodeGuid.ToString());
+        if (!ImportedNodePtr || !*ImportedNodePtr) {
+          continue;
+        }
+        UEdGraphNode* ImportedNode = *ImportedNodePtr;
+        for (UEdGraphPin* SourcePin : SourceNode->Pins) {
+          if (!SourcePin) {
+            continue;
+          }
+          UEdGraphPin* ImportedPin = ImportedNode->FindPin(SourcePin->PinName);
+          if (!ImportedPin) {
+            continue;
+          }
+          for (UEdGraphPin* ExternalPin : SourcePin->LinkedTo) {
+            if (!ExternalPin || SelectedNodes.Contains(ExternalPin->GetOwningNode())) {
+              continue;
+            }
+            const bool bCreated = ImportedPin->Direction == EGPD_Output
+                                      ? TargetGraph->GetSchema()->TryCreateConnection(
+                                            ImportedPin, ExternalPin)
+                                      : TargetGraph->GetSchema()->TryCreateConnection(
+                                            ExternalPin, ImportedPin);
+            if (bCreated) {
+              TSharedPtr<FJsonObject> LinkObj = MakeShared<FJsonObject>();
+              LinkObj->SetStringField(TEXT("fromNodeId"),
+                                      ImportedPin->GetOwningNode()->NodeGuid.ToString());
+              LinkObj->SetStringField(TEXT("fromPinName"),
+                                      ImportedPin->PinName.ToString());
+              LinkObj->SetStringField(TEXT("toNodeId"),
+                                      ExternalPin->GetOwningNode()->NodeGuid.ToString());
+              LinkObj->SetStringField(TEXT("toPinName"),
+                                      ExternalPin->PinName.ToString());
+              LinkObj->SetStringField(TEXT("sourceNodeId"),
+                                      SourceNode->NodeGuid.ToString());
+              LinkObj->SetStringField(TEXT("sourcePinName"),
+                                      SourcePin->PinName.ToString());
+              ReconnectedLinksJson.Add(MakeShared<FJsonValueObject>(LinkObj));
+            }
+          }
+        }
+      }
     }
 
     const TMap<FGuid, TArray<FGuid>> Membership = BuildCommentMembership();
@@ -2416,10 +2497,15 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
                          bReconnectExternalLinks);
     Result->SetArrayField(TEXT("duplicatedNodes"), ImportedNodesJson);
     Result->SetObjectField(TEXT("oldToNewNodeIds"), MappingObj);
+    Result->SetArrayField(TEXT("reconnectedLinks"), ReconnectedLinksJson);
+    Result->SetNumberField(TEXT("reconnectedLinkCount"),
+                           ReconnectedLinksJson.Num());
     if (bReconnectExternalLinks) {
       Result->SetStringField(
           TEXT("warning"),
-          TEXT("External link reconnection is not yet automated; duplicated subgraphs preserve only internal links."));
+          ReconnectedLinksJson.Num() > 0
+              ? TEXT("External links were reconnected to duplicated pins where exact pin-name matches were available.")
+              : TEXT("No external links could be reconnected automatically."));
     }
     AddAssetVerification(Result, Blueprint);
 

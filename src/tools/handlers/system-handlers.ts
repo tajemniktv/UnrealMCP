@@ -38,6 +38,35 @@ function extractPythonParams(argsTyped: SystemArgs, fallback: Record<string, unk
   return { ...fallback };
 }
 
+function normalizePythonExecutionResponse(
+  response: Record<string, unknown>,
+  pythonFallback: { enabled: boolean; unsafeEnabled: boolean; timeoutMs: number },
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const stdout = typeof response.stdout === 'string' ? response.stdout : '';
+  const stderr = typeof response.stderr === 'string' ? response.stderr : '';
+  const traceback = typeof response.traceback === 'string'
+    ? response.traceback
+    : typeof (response.result as Record<string, unknown> | undefined)?.traceback === 'string'
+      ? (response.result as Record<string, unknown>).traceback as string
+      : '';
+  const artifacts = Array.isArray(response.artifacts)
+    ? response.artifacts
+    : Array.isArray((response.result as Record<string, unknown> | undefined)?.artifacts)
+      ? (response.result as Record<string, unknown>).artifacts as unknown[]
+      : [];
+
+  return cleanObject({
+    ...response,
+    ...extra,
+    stdout,
+    stderr,
+    traceback,
+    artifacts,
+    pythonFallback
+  });
+}
+
 async function executePythonTemplate(
   bridge: UnrealBridge | undefined,
   argsTyped: SystemArgs,
@@ -76,14 +105,12 @@ async function executePythonTemplate(
     templateParams: extractPythonParams(argsTyped, fallbackParams)
   }, { timeoutMs: typeof argsTyped.timeoutMs === 'number' ? argsTyped.timeoutMs : pythonFallback.timeoutMs });
 
-  return cleanObject({
-    ...response,
-    template: templateName,
-    pythonFallback: {
-      enabled: pythonFallback.enabled,
-      unsafeEnabled: pythonFallback.unsafeEnabled,
-      timeoutMs: pythonFallback.timeoutMs
-    }
+  return normalizePythonExecutionResponse(response as Record<string, unknown>, {
+    enabled: pythonFallback.enabled,
+    unsafeEnabled: pythonFallback.unsafeEnabled,
+    timeoutMs: pythonFallback.timeoutMs
+  }, {
+    template: templateName
   });
 }
 
@@ -557,13 +584,10 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
         scriptParams: extractPythonParams(argsTyped)
       }, { timeoutMs: typeof argsTyped.timeoutMs === 'number' ? argsTyped.timeoutMs : pythonFallback.timeoutMs });
 
-      return cleanObject({
-        ...response,
-        pythonFallback: {
-          enabled: pythonFallback.enabled,
-          unsafeEnabled: pythonFallback.unsafeEnabled,
-          timeoutMs: pythonFallback.timeoutMs
-        }
+      return normalizePythonExecutionResponse(response as Record<string, unknown>, {
+        enabled: pythonFallback.enabled,
+        unsafeEnabled: pythonFallback.unsafeEnabled,
+        timeoutMs: pythonFallback.timeoutMs
       });
     }
     case 'run_python_file': {
@@ -605,14 +629,12 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
         scriptParams: extractPythonParams(argsTyped)
       }, { timeoutMs: typeof argsTyped.timeoutMs === 'number' ? argsTyped.timeoutMs : pythonFallback.timeoutMs });
 
-      return cleanObject({
-        ...response,
-        filePath,
-        pythonFallback: {
-          enabled: pythonFallback.enabled,
-          unsafeEnabled: pythonFallback.unsafeEnabled,
-          timeoutMs: pythonFallback.timeoutMs
-        }
+      return normalizePythonExecutionResponse(response as Record<string, unknown>, {
+        enabled: pythonFallback.enabled,
+        unsafeEnabled: pythonFallback.unsafeEnabled,
+        timeoutMs: pythonFallback.timeoutMs
+      }, {
+        filePath
       });
     }
     case 'run_python_template': {
@@ -663,6 +685,48 @@ export async function handleSystemTools(action: string, args: HandlerArgs, tools
         recursive: argsTyped.recursive,
         className: argsTyped.className,
         limit: argsTyped.limit
+      });
+    }
+    case 'list_assets_by_mount_root': {
+      const mountRoot = typeof argsTyped.mountRoot === 'string' ? argsTyped.mountRoot : argsTyped.path;
+      if (!mountRoot?.trim()) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_MOUNT_ROOT',
+          message: 'list_assets_by_mount_root requires mountRoot or path.'
+        });
+      }
+      return await executePythonTemplate(bridge, argsTyped, 'list_assets_by_mount_root', {
+        mountRoot,
+        path: mountRoot,
+        recursive: argsTyped.recursive
+      });
+    }
+    case 'check_asset_loadability': {
+      const path = argsTyped.path ?? argsTyped.objectPath;
+      if (!path?.trim()) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_ASSET_PATH',
+          message: 'check_asset_loadability requires path or objectPath.'
+        });
+      }
+      return await executePythonTemplate(bridge, argsTyped, 'check_asset_loadability', {
+        path
+      });
+    }
+    case 'audit_mod_config_asset': {
+      const path = argsTyped.path ?? argsTyped.objectPath;
+      if (!path?.trim()) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_OBJECT_PATH',
+          message: 'audit_mod_config_asset requires path or objectPath.'
+        });
+      }
+      return await executePythonTemplate(bridge, argsTyped, 'audit_mod_config_asset', {
+        path,
+        objectPath: path
       });
     }
     case 'validate_assets': {

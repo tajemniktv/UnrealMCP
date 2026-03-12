@@ -54,7 +54,6 @@ type NormalizedToolCall = {
 
 // Interface for deprecation warning flags (stored in globalThis for once-per-session warnings)
 interface DeprecationFlags {
-  __blueprintGraphDeprecationLogged?: boolean;
   __audioAuthoringDeprecationLogged?: boolean;
   __niagaraAuthoringDeprecationLogged?: boolean;
   __animationAuthoringDeprecationLogged?: boolean;
@@ -174,31 +173,28 @@ function registerDefaultHandlers() {
     return await handleAssetTools(action, args, tools);
   });
 
-  // 2. BLUEPRINT MANAGER (includes merged manage_blueprint_graph - Phase 53)
+  // 2. BLUEPRINT MANAGER
   toolRegistry.register('manage_blueprint', async (args, tools) => {
     const action = getAction(args);
     if (action === 'get_blueprint') {
       return await handleBlueprintGet(args, tools);
     }
     // Graph actions (merged from manage_blueprint_graph)
-    const graphActions = ['create_node', 'delete_node', 'connect_pins', 'break_pin_links', 'set_node_property', 'create_reroute_node', 'get_node_details', 'get_graph_details', 'get_pin_details', 'list_node_types', 'list_graphs', 'set_pin_default_value', 'list_comment_groups', 'create_comment_group', 'update_comment_group', 'find_nodes', 'disconnect_subgraph', 'disable_subgraph', 'duplicate_subgraph', 'collapse_to_subgraph', 'expand_collapsed_node', 'create_config_binding_cluster'];
+    const graphActions = ['create_node', 'delete_node', 'connect_pins', 'break_pin_links', 'set_node_property', 'create_reroute_node', 'get_node_details', 'get_graph_details', 'get_pin_details', 'get_nodes', 'get_connections', 'get_graph_topology', 'list_node_types', 'list_graphs', 'set_pin_default_value', 'list_comment_groups', 'create_comment_group', 'update_comment_group', 'find_nodes', 'find_nodes_by_title_comment_class', 'find_call_function_nodes', 'disconnect_subgraph', 'disable_subgraph', 'duplicate_subgraph', 'collapse_to_subgraph', 'expand_collapsed_node', 'create_config_binding_cluster'];
     if (graphActions.includes(action)) {
       return await handleGraphTools('manage_blueprint_graph', action, args, tools);
     }
     return await handleBlueprintTools(action, args, tools);
   });
 
-  // DEPRECATED: manage_blueprint_graph now merged into manage_blueprint (Phase 53)
-  // Kept for backward compatibility - routes to manage_blueprint
+  // 2b. BLUEPRINT GRAPH MANAGER
   toolRegistry.register('manage_blueprint_graph', async (args, tools) => {
-    // Deprecation warning logged once per session
-    const globalObj = globalThis as unknown as DeprecationFlags;
-    if (!globalObj.__blueprintGraphDeprecationLogged) {
-      const deprecationLogger = new Logger('DeprecationWarning');
-      deprecationLogger.warn('manage_blueprint_graph is deprecated and merged into manage_blueprint. Use manage_blueprint instead.');
-      globalObj.__blueprintGraphDeprecationLogged = true;
-    }
     return await handleGraphTools('manage_blueprint_graph', getAction(args), args, tools);
+  });
+
+  // 2c. MOD CONFIG MANAGER
+  toolRegistry.register('manage_mod_config', async (args, tools) => {
+    return await handleInspectTools(getAction(args), args, tools);
   });
 
   // 3. ACTOR CONTROL
@@ -340,8 +336,7 @@ function registerDefaultHandlers() {
   // 13. BEHAVIOR TREE
   toolRegistry.register('manage_behavior_tree', async (args, tools) => await handleGraphTools('manage_behavior_tree', getAction(args), args, tools));
 
-  // 14. [REMOVED] manage_blueprint_graph - now merged into manage_blueprint (Phase 53)
-  // See registration after manage_blueprint for backward compatibility alias
+  // 14. manage_blueprint_graph registered explicitly above as a public alias tool
 
   // 15. RENDER TOOLS
   toolRegistry.register('manage_render', async (args, tools) => {

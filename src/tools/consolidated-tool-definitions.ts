@@ -11,6 +11,24 @@ export interface ToolDefinition {
   [key: string]: unknown;
 }
 import { commonSchemas } from './tool-definition-utils.js';
+
+const blueprintGraphActionEnum = [
+  'create_node', 'add_node', 'delete_node', 'connect_pins', 'break_pin_links', 'set_node_property', 'create_reroute_node',
+  'get_node_details', 'get_graph_details', 'get_pin_details', 'get_nodes', 'get_connections', 'get_graph_topology',
+  'list_node_types', 'list_graphs', 'set_pin_default_value',
+  'list_comment_groups', 'create_comment_group', 'update_comment_group',
+  'find_nodes', 'find_nodes_by_title_comment_class', 'find_call_function_nodes',
+  'disconnect_subgraph', 'disable_subgraph', 'duplicate_subgraph', 'collapse_to_subgraph', 'expand_collapsed_node',
+  'retarget_binding_cluster', 'replace_binding_cluster', 'create_config_binding_cluster', 'summarize_migration_stage', 'batch_graph_actions'
+] as const;
+
+const modConfigActionEnum = [
+  'get_mod_config_schema', 'list_mod_config_properties',
+  'add_mod_config_property', 'update_mod_config_property', 'remove_mod_config_property', 'move_mod_config_property',
+  'repair_mod_config_tree', 'diff_mod_config_tree', 'backfill_mod_config_from_descriptor', 'migrate_mod_config_from_descriptor',
+  'save_mod_config', 'check_live_bridge_capabilities'
+] as const;
+
 export const consolidatedToolDefinitions: ToolDefinition[] = [
   {
     name: 'manage_pipeline',
@@ -90,6 +108,9 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
         classNames: commonSchemas.arrayOfStrings,
         packagePaths: commonSchemas.arrayOfStrings,
         mountRoot: { type: 'string', description: 'Mounted Unreal root used to scope search/list operations (for example /TajsGraph)' },
+        preferPythonFallback: commonSchemas.booleanProp,
+        scopeMode: { type: 'string', enum: ['strict', 'prefer', 'global'], description: 'How strongly mountRoot/packagePaths constrain asset search results.' },
+        exactPath: commonSchemas.assetPath,
         recursivePaths: commonSchemas.booleanProp,
         recursiveClasses: commonSchemas.booleanProp,
         limit: commonSchemas.numberProp,
@@ -194,8 +215,8 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'create', 'get_blueprint', 'get', 'compile',
             'add_component', 'set_default', 'modify_scs', 'get_scs', 'add_scs_component', 'remove_scs_component', 'reparent_scs_component', 'set_scs_transform', 'set_scs_property',
             'ensure_exists', 'probe_handle', 'add_variable', 'remove_variable', 'rename_variable', 'add_function', 'add_event', 'remove_event', 'add_construction_script', 'set_variable_metadata', 'set_metadata',
-            'create_node', 'add_node', 'delete_node', 'connect_pins', 'break_pin_links', 'set_node_property', 'create_reroute_node', 'get_node_details', 'get_graph_details', 'get_pin_details',
-            'list_node_types', 'list_graphs', 'set_pin_default_value', 'get_mod_blueprint_summary', 'list_comment_groups', 'create_comment_group', 'update_comment_group', 'find_nodes', 'disconnect_subgraph', 'disable_subgraph', 'duplicate_subgraph', 'collapse_to_subgraph', 'expand_collapsed_node', 'retarget_binding_cluster', 'replace_binding_cluster', 'create_config_binding_cluster', 'summarize_migration_stage', 'batch_graph_actions'
+            ...blueprintGraphActionEnum,
+            'get_mod_blueprint_summary'
           ],
           description: 'Blueprint action'
         },
@@ -767,13 +788,16 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'run_ubt', 'run_tests', 'subscribe', 'unsubscribe', 'spawn_category', 'start_session', 'lumen_update_scene',
             'play_sound', 'create_widget', 'show_widget', 'add_widget_child',
             'set_cvar', 'get_project_settings', 'validate_assets', 'transport_self_check', 'get_bridge_status', 'get_python_fallback_status', 'run_python_template', 'run_python_code', 'run_python_file',
-            'run_editor_utility', 'validate_selected_assets', 'audit_assets_in_path',
+            'run_editor_utility', 'validate_selected_assets', 'audit_assets_in_path', 'list_assets_by_mount_root', 'check_asset_loadability', 'audit_mod_config_asset',
             'set_project_setting', 'tail_logs'
           ]},
         profileType: commonSchemas.stringProp,
         template: commonSchemas.stringProp,
         code: commonSchemas.stringProp,
         params: commonSchemas.objectProp,
+        objectPath: commonSchemas.assetPath,
+        mountRoot: commonSchemas.stringProp,
+        preferPythonFallback: commonSchemas.booleanProp,
         category: commonSchemas.stringProp,
         level: commonSchemas.numberProp,
         limit: commonSchemas.numberProp,
@@ -930,7 +954,7 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
             'ensure_mod_config_section', 'delete_mod_config_property', 'rename_mod_config_property', 'move_mod_config_property',
             'delete_mod_config_section', 'rename_mod_config_section',
             'resolve_mod_config_target', 'get_mod_config_descriptor', 'validate_mod_config', 'diff_mod_config_expected_descriptor', 'backfill_mod_config_from_descriptor', 'migrate_mod_config_from_descriptor',
-            'resolve_blueprint_variants', 'inspect_blueprint_defaults', 'inspect_cdo',
+            'resolve_blueprint_variants', 'inspect_blueprint_asset', 'inspect_blueprint_defaults', 'inspect_cdo',
             'inspect_widget_blueprint', 'get_widget_summary',
             'verify_class_loadability', 'verify_widget_loadability',
             'get_plugin_descriptor_summary', 'validate_mod_descriptor',
@@ -1001,6 +1025,52 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
       properties: {
         ...commonSchemas.outputBase,
         value: commonSchemas.value
+      }
+    }
+  },
+  {
+    name: 'manage_mod_config',
+    category: 'core',
+    description: 'Dedicated CRUD and migration workflows for SML ModConfiguration assets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: [...modConfigActionEnum] },
+        objectPath: commonSchemas.assetPath,
+        section: commonSchemas.stringProp,
+        key: commonSchemas.stringProp,
+        newKey: commonSchemas.stringProp,
+        targetSection: commonSchemas.stringProp,
+        propertyType: commonSchemas.stringProp,
+        displayName: commonSchemas.stringProp,
+        tooltip: commonSchemas.stringProp,
+        value: commonSchemas.value,
+        requiresWorldReload: commonSchemas.booleanProp,
+        hidden: commonSchemas.booleanProp,
+        sections: commonSchemas.arrayOfStrings,
+        properties: commonSchemas.arrayOfStrings,
+        sectionPrefixes: commonSchemas.arrayOfStrings,
+        propertyPrefixes: commonSchemas.arrayOfStrings,
+        descriptorEntries: commonSchemas.arrayOfObjects,
+        dryRun: commonSchemas.booleanProp,
+        saveAfterApply: commonSchemas.booleanProp,
+        rewriteSections: commonSchemas.booleanProp,
+        rewriteProperties: commonSchemas.booleanProp,
+        plainOnly: commonSchemas.booleanProp,
+        classPath: commonSchemas.assetPath,
+        sectionClassPath: commonSchemas.assetPath
+      },
+      required: ['action', 'objectPath']
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        ...commonSchemas.outputBase,
+        tree: commonSchemas.objectProp,
+        properties: commonSchemas.arrayOfObjects,
+        applied: commonSchemas.arrayOfObjects,
+        missing: commonSchemas.arrayOfObjects,
+        mismatched: commonSchemas.arrayOfObjects
       }
     }
   },
@@ -1142,7 +1212,6 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
       }
     }
   },
-  // [MERGED] manage_blueprint_graph actions now in manage_blueprint (Phase 53: Strategic Tool Merging)
   {
     name: 'manage_lighting',
     category: 'world',
@@ -2118,6 +2187,72 @@ export const consolidatedToolDefinitions: ToolDefinition[] = [
           }
         },
         error: commonSchemas.stringProp
+      }
+    }
+  },
+  {
+    name: 'manage_blueprint_graph',
+    category: 'authoring',
+    description: 'Blueprint graph inspection and mutation focused tool alias with explicit graph-only actions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: [...blueprintGraphActionEnum],
+          description: 'Blueprint graph action'
+        },
+        blueprintPath: commonSchemas.blueprintPath,
+        graphName: commonSchemas.graphName,
+        nodeType: commonSchemas.stringProp,
+        nodeId: commonSchemas.nodeId,
+        commentNodeId: commonSchemas.nodeId,
+        nodeIds: commonSchemas.arrayOfStrings,
+        commentTitle: commonSchemas.stringProp,
+        commentText: commonSchemas.stringProp,
+        tags: commonSchemas.arrayOfStrings,
+        moveMode: commonSchemas.stringProp,
+        commentColor: commonSchemas.objectProp,
+        fontSize: commonSchemas.numberProp,
+        padding: commonSchemas.numberProp,
+        newGraphName: commonSchemas.stringProp,
+        includeSubGraphs: commonSchemas.booleanProp,
+        includePins: commonSchemas.booleanProp,
+        query: commonSchemas.stringProp,
+        commentTag: commonSchemas.stringProp,
+        nodeTitle: commonSchemas.stringProp,
+        nodeTypeFilter: commonSchemas.stringProp,
+        pinName: commonSchemas.pinName,
+        linkedTo: commonSchemas.stringProp,
+        direction: { type: 'string', enum: ['incoming', 'outgoing', 'both'], description: 'Connection direction for subgraph disconnect operations.' },
+        reason: commonSchemas.stringProp,
+        statusTag: commonSchemas.stringProp,
+        memberClass: commonSchemas.stringProp,
+        memberName: commonSchemas.stringProp,
+        functionName: commonSchemas.functionName,
+        propertyName: commonSchemas.propertyName,
+        value: commonSchemas.value,
+        x: commonSchemas.numberProp,
+        y: commonSchemas.numberProp,
+        offsetX: commonSchemas.numberProp,
+        offsetY: commonSchemas.numberProp,
+        dryRun: commonSchemas.booleanProp,
+        stopOnError: commonSchemas.booleanProp,
+        reconnectExternalLinks: commonSchemas.booleanProp,
+        actions: commonSchemas.arrayOfObjects
+      },
+      required: ['action', 'blueprintPath']
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        ...commonSchemas.outputBase,
+        nodeId: commonSchemas.nodeId,
+        graphName: commonSchemas.graphName,
+        graphPath: commonSchemas.stringProp,
+        nodes: commonSchemas.arrayOfObjects,
+        connections: commonSchemas.arrayOfObjects,
+        commentGroups: commonSchemas.arrayOfObjects
       }
     }
   },

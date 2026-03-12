@@ -491,6 +491,24 @@ export interface ConsolidatedToolParams {
     waitForCompletionTimeoutMs?: number;
   };
 
+  manage_blueprint_graph: {
+    action: string;
+    blueprintPath: string;
+    graphName?: string;
+    nodeId?: string;
+    nodeIds?: string[];
+    commentNodeId?: string;
+  };
+
+  manage_mod_config: {
+    action: string;
+    objectPath: string;
+    section?: string;
+    key?: string;
+    propertyType?: string;
+    value?: unknown;
+  };
+
   build_environment: {
     action: EnvironmentAction;
     name?: string;
@@ -548,6 +566,8 @@ export interface ToolResponseMap {
   animation_physics: AnimationPhysicsResponse;
   create_effect: CreateEffectResponse;
   manage_blueprint: ManageBlueprintResponse;
+  manage_blueprint_graph: ManageBlueprintResponse;
+  manage_mod_config: ManageAssetResponse;
   build_environment: BuildEnvironmentResponse;
   system_control: SystemControlResponse;
   console_command: ConsoleCommandResponse;

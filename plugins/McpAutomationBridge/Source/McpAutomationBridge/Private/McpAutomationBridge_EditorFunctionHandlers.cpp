@@ -184,6 +184,14 @@ static bool McpRunPythonTemplate(const FString& TemplateName,
         TEXT("recursive = bool(mcp_params.get('recursive', False))\n")
         TEXT("items = unreal.EditorAssetLibrary.list_assets(path, recursive=recursive, include_folder=False)\n")
         TEXT("result = {'success': True, 'items': items, 'count': len(items), 'path': path, 'recursive': recursive}\n");
+  } else if (TemplateName.Equals(TEXT("list_assets_by_mount_root"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("path = str(mcp_params.get('mountRoot') or mcp_params.get('path') or '')\n")
+        TEXT("if not path:\n")
+        TEXT("    raise RuntimeError(\"Template 'list_assets_by_mount_root' requires mountRoot or path.\")\n")
+        TEXT("recursive = bool(mcp_params.get('recursive', True))\n")
+        TEXT("items = unreal.EditorAssetLibrary.list_assets(path, recursive=recursive, include_folder=False)\n")
+        TEXT("result = {'success': True, 'items': items, 'count': len(items), 'mountRoot': path, 'recursive': recursive}\n");
   } else if (TemplateName.Equals(TEXT("find_assets_by_class"), ESearchCase::IgnoreCase)) {
     Code =
         TEXT("path = str(mcp_params.get('path') or '/Game')\n")
@@ -215,6 +223,19 @@ static bool McpRunPythonTemplate(const FString& TemplateName,
         TEXT("    'className': asset_class.get_name() if asset_class else '',\n")
         TEXT("    'packageName': package_name,\n")
         TEXT("    'exists': unreal.EditorAssetLibrary.does_asset_exist(path),\n")
+        TEXT("}\n");
+  } else if (TemplateName.Equals(TEXT("check_asset_loadability"), ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("path = str(mcp_params.get('path') or '')\n")
+        TEXT("if not path:\n")
+        TEXT("    raise RuntimeError(\"Template 'check_asset_loadability' requires path.\")\n")
+        TEXT("asset = unreal.EditorAssetLibrary.load_asset(path)\n")
+        TEXT("asset_class = asset.get_class() if asset else None\n")
+        TEXT("result = {\n")
+        TEXT("    'success': True,\n")
+        TEXT("    'path': path,\n")
+        TEXT("    'loadable': bool(asset),\n")
+        TEXT("    'className': asset_class.get_name() if asset_class else '',\n")
         TEXT("}\n");
   } else if (TemplateName.Equals(TEXT("get_selected_asset_details"), ESearchCase::IgnoreCase)) {
     Code =
@@ -347,6 +368,24 @@ static bool McpRunPythonTemplate(const FString& TemplateName,
         TEXT("    'count': len(items),\n")
         TEXT("    'items': items,\n")
         TEXT("    'classCounts': class_counts,\n")
+        TEXT("}\n");
+  } else if (TemplateName.Equals(TEXT("audit_mod_config_asset"),
+                                 ESearchCase::IgnoreCase)) {
+    Code =
+        TEXT("path = str(mcp_params.get('path') or mcp_params.get('objectPath') or '')\n")
+        TEXT("if not path:\n")
+        TEXT("    raise RuntimeError(\"Template 'audit_mod_config_asset' requires path or objectPath.\")\n")
+        TEXT("asset = unreal.EditorAssetLibrary.load_asset(path)\n")
+        TEXT("if not asset:\n")
+        TEXT("    raise RuntimeError(f\"Unable to load mod-config asset: {path}\")\n")
+        TEXT("asset_class = asset.get_class()\n")
+        TEXT("root_section = getattr(asset, 'root_section', None)\n")
+        TEXT("result = {\n")
+        TEXT("    'success': True,\n")
+        TEXT("    'path': path,\n")
+        TEXT("    'className': asset_class.get_name() if asset_class else '',\n")
+        TEXT("    'hasRootSection': root_section is not None,\n")
+        TEXT("    'rootSectionClass': root_section.get_class().get_name() if root_section and root_section.get_class() else '',\n")
         TEXT("}\n");
   } else {
     OutError = FString::Printf(TEXT("Unsupported Python template '%s'."), *TemplateName);
@@ -623,7 +662,9 @@ bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
     Templates.Add(MakeShared<FJsonValueString>(TEXT("list_selected_assets")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("list_selected_actors")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("list_assets_in_path")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("list_assets_by_mount_root")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("find_assets_by_class")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("check_asset_loadability")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("get_asset_details")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("get_selected_asset_details")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("find_actors_by_class")));
@@ -632,6 +673,7 @@ bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
     Templates.Add(MakeShared<FJsonValueString>(TEXT("run_editor_utility")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("validate_selected_assets")));
     Templates.Add(MakeShared<FJsonValueString>(TEXT("audit_assets_in_path")));
+    Templates.Add(MakeShared<FJsonValueString>(TEXT("audit_mod_config_asset")));
     Result->SetArrayField(TEXT("templates"), Templates);
     Result->SetBoolField(TEXT("unsafeExecutionSupported"), bPythonPluginEnabled);
     Result->SetStringField(
@@ -1015,10 +1057,10 @@ bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
     FString PathToCheck;
     // Accept either top-level 'path' or nested params.path
     if (!Payload->TryGetStringField(TEXT("path"), PathToCheck)) {
-      const TSharedPtr<FJsonObject> *ParamsPtr = nullptr;
-      if (Payload->TryGetObjectField(TEXT("params"), ParamsPtr) && ParamsPtr &&
-          (*ParamsPtr).IsValid()) {
-        (*ParamsPtr)->TryGetStringField(TEXT("path"), PathToCheck);
+      const TSharedPtr<FJsonObject> *LocalParamsPtr = nullptr;
+      if (Payload->TryGetObjectField(TEXT("params"), LocalParamsPtr) &&
+          LocalParamsPtr && (*LocalParamsPtr).IsValid()) {
+        (*LocalParamsPtr)->TryGetStringField(TEXT("path"), PathToCheck);
       }
     }
     if (PathToCheck.IsEmpty()) {
@@ -1043,13 +1085,13 @@ bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
   if (FN == TEXT("SET_VIEWPORT_CAMERA") ||
       FN == TEXT("SET_VIEWPORT_CAMERA_INFO") ||
       FN == TEXT("SET_CAMERA_POSITION")) {
-    const TSharedPtr<FJsonObject> *Params = nullptr;
+    const TSharedPtr<FJsonObject> *CameraParamsPtr = nullptr;
     FVector Loc(0, 0, 0);
     FRotator Rot(0, 0, 0);
-    if (Payload->TryGetObjectField(TEXT("params"), Params) && Params &&
-        (*Params).IsValid()) {
-      ReadVectorField(*Params, TEXT("location"), Loc, Loc);
-      ReadRotatorField(*Params, TEXT("rotation"), Rot, Rot);
+    if (Payload->TryGetObjectField(TEXT("params"), CameraParamsPtr) &&
+        CameraParamsPtr && (*CameraParamsPtr).IsValid()) {
+      ReadVectorField(*CameraParamsPtr, TEXT("location"), Loc, Loc);
+      ReadRotatorField(*CameraParamsPtr, TEXT("rotation"), Rot, Rot);
     } else {
       ReadVectorField(Payload, TEXT("location"), Loc, Loc);
       ReadRotatorField(Payload, TEXT("rotation"), Rot, Rot);
@@ -1350,11 +1392,11 @@ bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
   }
 
   if (FN == TEXT("BLUEPRINT_ADD_COMPONENT")) {
-    const TSharedPtr<FJsonObject> *Params = nullptr;
+    const TSharedPtr<FJsonObject> *BlueprintParamsPtr = nullptr;
     TSharedPtr<FJsonObject> LocalParams = MakeShared<FJsonObject>();
-    if (Payload->TryGetObjectField(TEXT("params"), Params) && Params &&
-        (*Params).IsValid()) {
-      LocalParams = *Params;
+    if (Payload->TryGetObjectField(TEXT("params"), BlueprintParamsPtr) &&
+        BlueprintParamsPtr && (*BlueprintParamsPtr).IsValid()) {
+      LocalParams = *BlueprintParamsPtr;
     } else if (Payload->HasField(TEXT("payloadBase64"))) {
       FString Enc;
       Payload->TryGetStringField(TEXT("payloadBase64"), Enc);
@@ -1513,9 +1555,9 @@ bool UMcpAutomationBridgeSubsystem::HandleExecuteEditorFunction(
 
   // PLAY_SOUND helpers
   if (FN == TEXT("PLAY_SOUND_AT_LOCATION") || FN == TEXT("PLAY_SOUND_2D")) {
-    const TSharedPtr<FJsonObject> *Params = nullptr;
-    if (!Payload->TryGetObjectField(TEXT("params"), Params) ||
-        !(*Params).IsValid()) { /* allow top-level path fields */
+    const TSharedPtr<FJsonObject> *SoundParamsPtr = nullptr;
+    if (!Payload->TryGetObjectField(TEXT("params"), SoundParamsPtr) ||
+        !SoundParamsPtr || !(*SoundParamsPtr).IsValid()) { /* allow top-level path fields */
     }
     FString SoundPath;
     if (!Payload->TryGetStringField(TEXT("path"), SoundPath))

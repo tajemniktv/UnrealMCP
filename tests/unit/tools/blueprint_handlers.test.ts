@@ -199,6 +199,136 @@ describe('Blueprint Handlers', () => {
         );
     });
 
+    it('derives graph connections from get_graph_details', async () => {
+        const tools = {
+            automationBridge: {
+                isConnected: vi.fn().mockReturnValue(true),
+                sendAutomationRequest: vi.fn().mockResolvedValue({
+                    success: true,
+                    graphName: 'EventGraph',
+                    graphPath: '/Game/Test/BP_Test:EventGraph',
+                    nodes: [
+                        {
+                            nodeId: 'NodeA',
+                            nodeName: 'NodeA',
+                            nodeTitle: 'Event BeginPlay',
+                            pins: [
+                                {
+                                    pinName: 'Then',
+                                    direction: 'Output',
+                                    pinType: 'exec',
+                                    linkedTo: [{ nodeId: 'NodeB', nodeName: 'NodeB', nodeTitle: 'Apply Shadows', pinName: 'Execute' }]
+                                }
+                            ]
+                        },
+                        {
+                            nodeId: 'NodeB',
+                            nodeName: 'NodeB',
+                            nodeTitle: 'Apply Shadows',
+                            pins: []
+                        }
+                    ]
+                })
+            }
+        } as any;
+
+        const result = await handleBlueprintTools('get_connections', {
+            blueprintPath: '/Game/Test/BP_Test',
+            graphName: 'EventGraph'
+        }, tools);
+
+        expect(result.success).toBe(true);
+        expect(result.connectionCount).toBe(1);
+        expect((result.connections as Array<Record<string, unknown>>)[0]).toMatchObject({
+            fromNodeId: 'NodeA',
+            fromPinName: 'Then',
+            toNodeId: 'NodeB',
+            toPinName: 'Execute'
+        });
+    });
+
+    it('aggregates topology across nested graphs when includeSubGraphs is enabled', async () => {
+        const tools = {
+            automationBridge: {
+                isConnected: vi.fn().mockReturnValue(true),
+                sendAutomationRequest: vi.fn().mockImplementation(async (_toolName: string, args: Record<string, unknown>) => {
+                    if (args.subAction === 'list_graphs') {
+                        return {
+                            success: true,
+                            graphs: [
+                                { graphName: 'EventGraph', graphPath: '/Game/Test/BP_Test:EventGraph' },
+                                { graphName: 'CollapsedFlow', graphPath: '/Game/Test/BP_Test:CollapsedFlow' }
+                            ]
+                        };
+                    }
+                    if (args.subAction === 'get_graph_details' && args.graphName === 'CollapsedFlow') {
+                        return {
+                            success: true,
+                            graphName: 'CollapsedFlow',
+                            graphPath: '/Game/Test/BP_Test:CollapsedFlow',
+                            nodes: [{ nodeId: 'NestedNode', pins: [] }],
+                            commentGroups: []
+                        };
+                    }
+                    return {
+                        success: true,
+                        graphName: 'EventGraph',
+                        graphPath: '/Game/Test/BP_Test:EventGraph',
+                        nodes: [{ nodeId: 'RootNode', pins: [] }],
+                        commentGroups: [{ commentNodeId: 'CommentA' }]
+                    };
+                })
+            }
+        } as any;
+
+        const result = await handleBlueprintTools('get_graph_topology', {
+            blueprintPath: '/Game/Test/BP_Test',
+            includeSubGraphs: true
+        }, tools);
+
+        expect(result.success).toBe(true);
+        expect(result.graphCount).toBe(2);
+        expect(result.nodeCount).toBe(2);
+        expect(Array.isArray(result.graphs)).toBe(true);
+    });
+
+    it('filters call-function nodes using serialized function metadata', async () => {
+        const tools = {
+            automationBridge: {
+                isConnected: vi.fn().mockReturnValue(true),
+                sendAutomationRequest: vi.fn().mockResolvedValue({
+                    success: true,
+                    graphName: 'EventGraph',
+                    graphPath: '/Game/Test/BP_Test:EventGraph',
+                    nodes: [
+                        {
+                            nodeId: 'CallA',
+                            nodeType: 'K2Node_CallFunction',
+                            functionName: 'ApplyManagedPPVFromModConfig',
+                            memberClass: 'UTajsGraphRuntimeBlueprintLibrary'
+                        },
+                        {
+                            nodeId: 'CallB',
+                            nodeType: 'K2Node_CallFunction',
+                            functionName: 'RefreshAllFromModConfig',
+                            memberClass: 'UTajsGraphRuntimeBlueprintLibrary'
+                        }
+                    ]
+                })
+            }
+        } as any;
+
+        const result = await handleBlueprintTools('find_call_function_nodes', {
+            blueprintPath: '/Game/Test/BP_Test',
+            memberClass: 'UTajsGraphRuntimeBlueprintLibrary',
+            functionName: 'ApplyManagedPPVFromModConfig'
+        }, tools);
+
+        expect(result.success).toBe(true);
+        expect(result.count).toBe(1);
+        expect((result.nodes as Array<Record<string, unknown>>)[0]?.nodeId).toBe('CallA');
+    });
+
     it('forwards create_comment_group to the blueprint graph bridge action', async () => {
         const tools = createMockTools() as any;
 

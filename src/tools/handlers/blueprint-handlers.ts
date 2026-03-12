@@ -80,6 +80,116 @@ async function getCommentGroups(
   return Array.isArray(res.commentGroups) ? res.commentGroups as Array<Record<string, unknown>> : [];
 }
 
+async function getGraphDetails(
+  tools: ITools,
+  blueprintPath: string,
+  graphName?: string,
+): Promise<Record<string, unknown>> {
+  return await executeAutomationRequest(tools, 'manage_blueprint_graph', {
+    subAction: 'get_graph_details',
+    blueprintPath,
+    assetPath: blueprintPath,
+    graphName
+  }) as Record<string, unknown>;
+}
+
+async function getGraphTopologyDetails(
+  tools: ITools,
+  blueprintPath: string,
+  graphName?: string,
+  includeSubGraphs?: boolean,
+): Promise<Record<string, unknown>> {
+  const rootGraph = await getGraphDetails(tools, blueprintPath, graphName);
+  if (!includeSubGraphs) {
+    return rootGraph;
+  }
+
+  const graphList = await executeAutomationRequest(tools, 'manage_blueprint_graph', {
+    subAction: 'list_graphs',
+    blueprintPath,
+    assetPath: blueprintPath,
+    graphName
+  }) as Record<string, unknown>;
+  const graphs = Array.isArray(graphList.graphs) ? graphList.graphs as Array<Record<string, unknown>> : [];
+
+  const allGraphDetails = await Promise.all(graphs.map(async (graph) => {
+    const currentGraphName = extractString(graph.graphName);
+    if (!currentGraphName) return undefined;
+    return await getGraphDetails(tools, blueprintPath, currentGraphName);
+  }));
+
+  const validGraphDetails = allGraphDetails.filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  const nodes = validGraphDetails.flatMap((entry) =>
+    Array.isArray(entry.nodes) ? entry.nodes as Array<Record<string, unknown>> : []
+  );
+  const commentGroups = validGraphDetails.flatMap((entry) =>
+    Array.isArray(entry.commentGroups) ? entry.commentGroups as Array<Record<string, unknown>> : []
+  );
+  const graphSummaries = validGraphDetails.map((entry) => {
+    const entryNodes = Array.isArray(entry.nodes) ? entry.nodes as Array<Record<string, unknown>> : [];
+    const entryCommentGroups = Array.isArray(entry.commentGroups) ? entry.commentGroups as Array<Record<string, unknown>> : [];
+    return cleanObject({
+      graphName: entry.graphName,
+      graphPath: entry.graphPath,
+      nodeCount: entryNodes.length,
+      commentGroupCount: entryCommentGroups.length,
+      connectionCount: deriveConnectionsFromNodes(entryNodes).length
+    }) as Record<string, unknown>;
+  });
+
+  return cleanObject({
+    ...rootGraph,
+    includeSubGraphs: true,
+    graphCount: validGraphDetails.length,
+    graphs: graphSummaries,
+    nodes,
+    commentGroups,
+    totalNodeCount: nodes.length,
+    totalCommentGroupCount: commentGroups.length
+  }) as Record<string, unknown>;
+}
+
+function deriveConnectionsFromNodes(nodes: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  const connections: Array<Record<string, unknown>> = [];
+
+  for (const node of nodes) {
+    const fromNodeId = extractString(node.nodeId);
+    const fromNodeName = extractString(node.nodeName);
+    const fromNodeTitle = extractString(node.nodeTitle);
+    const graphName = extractString(node.graphName);
+    const pins = Array.isArray(node.pins) ? node.pins as Array<Record<string, unknown>> : [];
+    for (const pin of pins) {
+      const fromPinName = extractString(pin.pinName);
+      const direction = extractString(pin.direction)?.toLowerCase();
+      if (!fromNodeId || !fromPinName || direction !== 'output') continue;
+      const linkedTo = Array.isArray(pin.linkedTo) ? pin.linkedTo as Array<Record<string, unknown>> : [];
+      for (const link of linkedTo) {
+        const toNodeId = extractString(link.nodeId);
+        const toPinName = extractString(link.pinName);
+        if (!toNodeId || !toPinName) continue;
+        const key = `${fromNodeId}:${fromPinName}->${toNodeId}:${toPinName}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        connections.push(cleanObject({
+          fromNodeId,
+          fromNodeName,
+          fromNodeTitle,
+          fromPinName,
+          toNodeId,
+          toNodeName: extractString(link.nodeName),
+          toNodeTitle: extractString(link.nodeTitle),
+          toPinName,
+          graphName,
+          pinType: extractString(pin.pinType)
+        }) as Record<string, unknown>);
+      }
+    }
+  }
+
+  return connections;
+}
+
 function extractString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -110,6 +220,112 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
   }
   
   switch (action) {
+    case 'get_connections':
+    case 'get_graph_topology': {
+      const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name;
+      if (!blueprintPath) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_BLUEPRINT_PATH',
+          message: 'blueprintPath, path, or name is required'
+        }) as Record<string, unknown>;
+      }
+
+      const graphDetails = await getGraphTopologyDetails(
+        tools,
+        blueprintPath,
+        argsTyped.graphName,
+        typeof argsRecord.includeSubGraphs === 'boolean' ? argsRecord.includeSubGraphs : false
+      );
+      const nodes = Array.isArray(graphDetails.nodes) ? graphDetails.nodes as Array<Record<string, unknown>> : [];
+      const connections = deriveConnectionsFromNodes(nodes);
+      if (action === 'get_connections') {
+        return cleanObject({
+          success: graphDetails.success !== false,
+          blueprintPath,
+          graphName: graphDetails.graphName,
+          graphPath: graphDetails.graphPath,
+          includeSubGraphs: graphDetails.includeSubGraphs,
+          connectionCount: connections.length,
+          connections,
+          message: 'Blueprint graph connections retrieved.'
+        }) as Record<string, unknown>;
+      }
+
+      const commentGroups = Array.isArray(graphDetails.commentGroups) ? graphDetails.commentGroups : [];
+      return cleanObject({
+        success: graphDetails.success !== false,
+        blueprintPath,
+        graphName: graphDetails.graphName,
+        graphPath: graphDetails.graphPath,
+        includeSubGraphs: graphDetails.includeSubGraphs,
+        graphCount: graphDetails.graphCount,
+        graphs: graphDetails.graphs,
+        nodeCount: nodes.length,
+        connectionCount: connections.length,
+        commentGroupCount: commentGroups.length,
+        nodes,
+        connections,
+        commentGroups,
+        message: 'Blueprint graph topology retrieved.'
+      }) as Record<string, unknown>;
+    }
+    case 'find_nodes_by_title_comment_class': {
+      return await handleBlueprintTools('find_nodes', {
+        ...args,
+        nodeTitle: extractString(argsRecord.nodeTitle) ?? extractString(argsRecord.query),
+        commentTitle: extractString(argsRecord.commentTitle),
+        commentTag: extractString(argsRecord.commentTag),
+        nodeTypeFilter:
+          extractString(argsRecord.nodeTypeFilter)
+          ?? extractString(argsRecord.nodeType)
+          ?? extractString(argsRecord.className),
+        includePins: typeof argsRecord.includePins === 'boolean' ? argsRecord.includePins : false,
+        includeSubGraphs: typeof argsRecord.includeSubGraphs === 'boolean' ? argsRecord.includeSubGraphs : false
+      }, tools);
+    }
+    case 'find_call_function_nodes': {
+      const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name;
+      if (!blueprintPath) {
+        return cleanObject({
+          success: false,
+          error: 'INVALID_BLUEPRINT_PATH',
+          message: 'blueprintPath, path, or name is required'
+        }) as Record<string, unknown>;
+      }
+
+      const graphDetails = await getGraphTopologyDetails(
+        tools,
+        blueprintPath,
+        argsTyped.graphName,
+        typeof argsRecord.includeSubGraphs === 'boolean' ? argsRecord.includeSubGraphs : false
+      );
+      const nodes = Array.isArray(graphDetails.nodes) ? graphDetails.nodes as Array<Record<string, unknown>> : [];
+      const requestedMemberClass = extractString(argsRecord.memberClass)?.toLowerCase();
+      const requestedFunctionName =
+        (extractString(argsRecord.functionName) ?? extractString(argsRecord.memberName))?.toLowerCase();
+
+      const matches = nodes.filter((node) => {
+        const nodeType = extractString(node.nodeType)?.toLowerCase() ?? '';
+        if (!nodeType.includes('k2node_callfunction')) return false;
+        const memberClass = extractString(node.memberClass)?.toLowerCase();
+        const functionName = extractString(node.functionName)?.toLowerCase();
+        if (requestedMemberClass && memberClass !== requestedMemberClass) return false;
+        if (requestedFunctionName && functionName !== requestedFunctionName) return false;
+        return true;
+      });
+
+      return cleanObject({
+        success: graphDetails.success !== false,
+        blueprintPath,
+        graphName: graphDetails.graphName,
+        graphPath: graphDetails.graphPath,
+        includeSubGraphs: graphDetails.includeSubGraphs,
+        count: matches.length,
+        nodes: matches,
+        message: 'Call-function nodes retrieved.'
+      }) as Record<string, unknown>;
+    }
     case 'retarget_binding_cluster': {
       const blueprintPath = argsTyped.blueprintPath || (argsRecord.path as string | undefined) || argsTyped.name;
       if (!blueprintPath) {
@@ -222,7 +438,8 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
         args: {
           commentNodeId,
           offsetX: argsRecord.offsetX,
-          offsetY: argsRecord.offsetY
+          offsetY: argsRecord.offsetY,
+          reconnectExternalLinks: argsTyped.reconnectExternalLinks === true
         }
       };
 
@@ -259,7 +476,8 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
         graphName: argsTyped.graphName,
         commentNodeId,
         offsetX: argsRecord.offsetX,
-        offsetY: argsRecord.offsetY
+        offsetY: argsRecord.offsetY,
+        reconnectExternalLinks: argsTyped.reconnectExternalLinks === true
       }) as Record<string, unknown>;
 
       const duplicatedNodes = Array.isArray(duplicateResult.duplicatedNodes)
@@ -308,6 +526,7 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
         success: duplicateResult.success !== false && retargetResult.success !== false && (disableResult?.success !== false),
         originalCommentNodeId: commentNodeId,
         duplicatedCommentNodeId,
+        reconnectExternalLinks: argsTyped.reconnectExternalLinks === true,
         duplicateResult,
         retargetResult,
         disableResult
@@ -848,6 +1067,7 @@ export async function handleBlueprintTools(action: string, args: HandlerArgs, to
     case 'get_node_details':
     case 'get_pin_details':
     case 'get_graph_details':
+    case 'get_nodes':
     case 'create_node':
     case 'list_node_types':
     case 'list_graphs':

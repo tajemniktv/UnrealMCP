@@ -2,13 +2,13 @@
 
 This document maps the TypeScript tool definitions to their corresponding C++ handlers in the Unreal Engine plugin.
 
-> **Note (Phase 53):** The following tools have been merged and are now deprecated:
-> - `manage_blueprint_graph` → merged into `manage_blueprint`
+> **Note:** The following tools share implementation with broader surfaces:
+> - `manage_blueprint_graph` → public graph-focused alias that shares the same underlying Blueprint graph handlers as `manage_blueprint`
 > - `manage_audio_authoring` → merged into `manage_audio`
 > - `manage_niagara_authoring` → merged into `manage_effect`
 > - `manage_animation_authoring` → merged into `animation_physics`
 >
-> The deprecated tools still work for backward compatibility but log deprecation warnings.
+> `manage_blueprint_graph` is intentionally public for discoverability. The remaining aliases are primarily backward-compat routes.
 
 ## 1. Asset Manager (`manage_asset`)
 

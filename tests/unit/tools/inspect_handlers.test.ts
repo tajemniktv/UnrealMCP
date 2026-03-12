@@ -171,6 +171,42 @@ describe('Inspect Handlers', () => {
         expect(inspectCall[1]?.dryRun).toBe(true);
     });
 
+    it('lists flattened mod-config properties through the dedicated schema-style alias', async () => {
+        const result = await handleInspectTools('list_mod_config_properties', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig'
+        }, mockTools);
+
+        expect(result.success).toBe(true);
+        expect(result.count).toBe(1);
+        expect((result.properties as Array<Record<string, unknown>>)[0]?.path).toBe('Graphics/EnableFancyThing');
+    });
+
+    it('falls back across blueprint variants for mod-config tree reads', async () => {
+        mockTools.automationBridge.sendAutomationRequest.mockImplementation(async (_toolName: string, args: Record<string, unknown>) => {
+            if (args.action === 'get_mod_config_tree' && args.objectPath === '/Game/Test/BP_Config.BP_Config') {
+                return { success: false, error: 'BLUEPRINT_NOT_FOUND' };
+            }
+            if (args.action === 'get_mod_config_tree' && args.objectPath === '/Game/Test/BP_Config.BP_Config_C') {
+                return {
+                    success: true,
+                    tree: {
+                        key: 'RootSection',
+                        kind: 'section',
+                        children: []
+                    }
+                };
+            }
+            return { success: true };
+        });
+
+        const result = await handleInspectTools('get_mod_config_tree', {
+            objectPath: '/Game/Test/BP_Config.BP_Config'
+        }, mockTools);
+
+        expect(result.success).toBe(true);
+        expect((result.tree as Record<string, unknown>).key).toBe('RootSection');
+    });
+
     it('forwards live bridge capability checks to the inspect bridge', async () => {
         await handleInspectTools('check_live_bridge_capabilities', {
             objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig'
@@ -179,6 +215,86 @@ describe('Inspect Handlers', () => {
         const calls = (mockTools.automationBridge.sendAutomationRequest as any).mock.calls;
         const inspectCall = calls.find((entry: unknown[]) => entry[0] === 'inspect' && entry[1]?.action === 'check_live_bridge_capabilities');
         expect(inspectCall).toBeTruthy();
+    });
+
+    it('builds a Blueprint-aware asset inspection summary', async () => {
+        mockTools.automationBridge.sendAutomationRequest.mockImplementation(async (_toolName: string, args: Record<string, unknown>) => {
+            if (_toolName === 'blueprint_get') {
+                return {
+                    success: true,
+                    variables: [{ name: 'ConfigSubsystem' }],
+                    functions: [{ name: 'ApplyManagedPPVFromModConfig' }]
+                };
+            }
+            if (_toolName === 'manage_blueprint_graph' && args.subAction === 'list_graphs') {
+                return {
+                    success: true,
+                    graphs: [{ graphName: 'EventGraph', graphPath: '/Game/Test/BP_Test:EventGraph', isNestedGraph: false }]
+                };
+            }
+            if (_toolName === 'manage_blueprint_graph' && args.subAction === 'get_graph_details') {
+                return {
+                    success: true,
+                    graphName: 'EventGraph',
+                    graphPath: '/Game/Test/BP_Test:EventGraph',
+                    nodeCount: 3,
+                    commentGroups: [{ commentNodeId: 'CommentA' }],
+                    nodes: [{ connectionSummary: { totalLinkCount: 2 } }]
+                };
+            }
+            if (args.action === 'inspect_object') {
+                return { success: true, objectPath: args.objectPath, className: 'BlueprintGeneratedClass' };
+            }
+            return { success: true };
+        });
+
+        const result = await handleInspectTools('inspect_blueprint_asset', {
+            objectPath: '/Game/Test/BP_Test.BP_Test'
+        }, mockTools);
+
+        expect(result.success).toBe(true);
+        expect(result.graphCount).toBe(1);
+        expect(Array.isArray(result.graphSummaries)).toBe(true);
+        expect((result.graphSummaries as Array<Record<string, unknown>>)[0]?.nodeCount).toBe(3);
+    });
+
+    it('emits categorized mod-config issues from the live tree', async () => {
+        mockTools.automationBridge.sendAutomationRequest.mockImplementation(async (_toolName: string, args: Record<string, unknown>) => {
+            if (args.action === 'get_mod_config_tree') {
+                return {
+                    success: true,
+                    tree: {
+                        key: 'RootSection',
+                        kind: 'section',
+                        children: [
+                            {
+                                key: 'Graphics',
+                                kind: 'section',
+                                children: [
+                                    {
+                                        key: 'ShadowSteps',
+                                        kind: 'int',
+                                        value: 8,
+                                        path: 'Graphics/ShadowSteps',
+                                        classPath: '/Script/SML.ConfigPropertyInteger'
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                };
+            }
+            return { success: true };
+        });
+
+        const result = await handleInspectTools('validate_mod_config', {
+            objectPath: '/TajsGraph/Config/TajsGraph_ModConfig.TajsGraph_ModConfig'
+        }, mockTools);
+
+        expect(result.success).toBe(true);
+        expect(Array.isArray(result.issues)).toBe(true);
+        expect((result.issues as Array<Record<string, unknown>>).some((issue) => issue.category === 'missing_display_name')).toBe(true);
+        expect((result.issues as Array<Record<string, unknown>>).some((issue) => issue.category === 'plain_base_class')).toBe(true);
     });
 
     it('diffs the live mod config tree against an expected descriptor list', async () => {

@@ -4,6 +4,7 @@ import type { HandlerArgs, InspectArgs, ComponentInfo } from '../../types/handle
 import { executeAutomationRequest } from './common-handlers.js';
 import { normalizeArgs, resolveObjectPath, extractString, extractOptionalString } from './argument-helper.js';
 import { classifyMountRoot, deriveBlueprintVariants, findPluginDescriptorByName, findPluginDescriptorByRoot, findProjectContext, getMountRoot, listPluginDescriptors, listTargetFiles, summarizeDescriptor } from './modding-utils.js';
+import { handleBlueprintGet } from './blueprint-handlers.js';
 
 /** Response from introspection operations */
 interface InspectResponse {
@@ -104,6 +105,97 @@ function splitDescriptorKey(key: string): { section?: string; key: string } {
   };
 }
 
+type ModConfigTreeNode = Record<string, unknown> & {
+  key?: string;
+  kind?: string;
+  path?: string;
+  children?: ModConfigTreeNode[];
+};
+
+function flattenModConfigTree(node: unknown, parentPath: string = ''): Array<Record<string, unknown>> {
+  if (!node || typeof node !== 'object' || Array.isArray(node)) return [];
+  const record = node as ModConfigTreeNode;
+  const key = asString(record.key) ?? '';
+  const path = asString(record.path) ?? [parentPath, key].filter(Boolean).join('/');
+  const kind = asString(record.kind) ?? '';
+  const entry = cleanObject({
+    ...record,
+    key,
+    path,
+    kind
+  }) as Record<string, unknown>;
+  const children = Array.isArray(record.children) ? record.children : [];
+  return [entry, ...children.flatMap((child) => flattenModConfigTree(child, path))];
+}
+
+async function resolveWorkingModConfigObjectPath(args: HandlerArgs, tools: ITools): Promise<string | undefined> {
+  const directObjectPath = await resolveObjectPath(args, tools);
+  const explicitObjectPath = extractOptionalString(args as Record<string, unknown>, 'objectPath');
+  const candidates = Array.from(new Set(
+    [directObjectPath, explicitObjectPath].filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+  ));
+
+  for (const candidate of candidates) {
+    const res = await tryInspectAction(tools, 'get_mod_config_tree', { objectPath: candidate });
+    if (res?.success !== false && res?.tree) {
+      return candidate;
+    }
+  }
+
+  const baseTarget = directObjectPath ?? explicitObjectPath;
+  if (baseTarget) {
+    const variants = deriveBlueprintVariants(baseTarget);
+    const variantCandidates = Array.from(new Set([
+      variants.assetObjectPath,
+      variants.generatedClassPath,
+      variants.cdoPath
+    ].filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)));
+
+    for (const candidate of variantCandidates) {
+      const res = await tryInspectAction(tools, 'get_mod_config_tree', { objectPath: candidate });
+      if (res?.success !== false && res?.tree) {
+        return candidate;
+      }
+    }
+  }
+
+  return directObjectPath ?? explicitObjectPath;
+}
+
+function buildModConfigIssues(tree: unknown, descriptor: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const flattened = flattenModConfigTree(tree);
+  const issues: Array<Record<string, unknown>> = [];
+  const propertyNodes = flattened.filter((entry) => (asString(entry.kind)?.toLowerCase() ?? '') !== 'section');
+
+  if (propertyNodes.length > 0 && descriptor.length === 0) {
+    issues.push(createIssue('empty_descriptor_with_live_tree', 'Live mod-config tree contains properties but descriptor export is empty.', {
+      propertyCount: propertyNodes.length
+    }));
+  }
+
+  for (const entry of propertyNodes) {
+    const key = asString(entry.path) ?? asString(entry.key) ?? 'unknown';
+    const displayName = asString(entry.displayName);
+    const tooltip = asString(entry.tooltip);
+    const classPath = asString(entry.classPath) ?? asString(entry.sectionClassPath) ?? asString(entry.widgetClassPath);
+
+    if (!displayName) {
+      issues.push(createIssue('missing_display_name', `Config entry '${key}' is missing displayName.`, entry));
+    }
+    if (!tooltip) {
+      issues.push(createIssue('missing_tooltip', `Config entry '${key}' is missing tooltip.`, entry));
+    }
+    if (classPath && !looksLikeMountedObjectPath(classPath)) {
+      issues.push(createIssue('invalid_class_path', `Config entry '${key}' has a non-mounted class/widget path.`, entry));
+    }
+    if (classPath && /ConfigProperty/.test(classPath) && !/BP_/i.test(classPath)) {
+      issues.push(createIssue('plain_base_class', `Config entry '${key}' appears to use a plain base config property class instead of a widget-backed BP class.`, entry));
+    }
+  }
+
+  return issues;
+}
+
 function descriptorType(entry: ConfigDescriptorEntry): string | undefined {
   return asString(entry.propertyType) ?? asString(entry.kind);
 }
@@ -145,6 +237,11 @@ const INSPECT_ACTION_ALIASES: Record<string, string> = {
   'get_viewport_info': 'get_viewport_info',
   'get_selected_actors': 'get_selected_actors',
   'get_mount_points': 'get_mount_points',
+  'get_mod_config_schema': 'get_mod_config_schema',
+  'list_mod_config_properties': 'list_mod_config_properties',
+  'add_mod_config_property': 'add_mod_config_property',
+  'update_mod_config_property': 'update_mod_config_property',
+  'remove_mod_config_property': 'remove_mod_config_property',
 };
 
 /**
@@ -694,7 +791,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       return cleanObject(res);
     }
     case 'upsert_mod_config_property': {
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       const params = normalizeArgs(args, [
         { key: 'key', required: true },
         { key: 'propertyType', required: true },
@@ -732,10 +829,14 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
 
       return cleanObject(res);
     }
+    case 'add_mod_config_property':
+    case 'update_mod_config_property': {
+      return await handleInspectTools('upsert_mod_config_property', args, tools);
+    }
     case 'ensure_mod_config_section':
     case 'delete_mod_config_property':
     case 'delete_mod_config_section': {
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
@@ -754,9 +855,12 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
 
       return cleanObject(res);
     }
+    case 'remove_mod_config_property': {
+      return await handleInspectTools('delete_mod_config_property', args, tools);
+    }
     case 'rename_mod_config_property':
     case 'move_mod_config_property': {
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
@@ -780,7 +884,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       return cleanObject(res);
     }
     case 'rename_mod_config_section': {
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
@@ -802,7 +906,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       return cleanObject(res);
     }
     case 'get_mod_config_tree': {
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
@@ -814,8 +918,43 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
 
       return cleanObject(res);
     }
+    case 'get_mod_config_schema':
+    case 'list_mod_config_properties': {
+      const treeRes = await handleInspectTools('get_mod_config_tree', args, tools);
+      const treeRecord = treeRes as Record<string, unknown>;
+      const tree = treeRecord.tree;
+      const flattened = flattenModConfigTree(tree);
+      const propertyEntries = flattened.filter((entry) => {
+        const kind = asString(entry.kind)?.toLowerCase() ?? '';
+        return kind.length > 0 && kind !== 'section';
+      });
+      const descriptorRes = await handleInspectTools('get_mod_config_descriptor', args, tools);
+      const descriptor = Array.isArray((descriptorRes as Record<string, unknown>).descriptor)
+        ? (descriptorRes as Record<string, unknown>).descriptor as Array<Record<string, unknown>>
+        : [];
+      const issues = buildModConfigIssues(tree, descriptor);
+      if (normalizedAction === 'get_mod_config_schema') {
+        return cleanObject({
+          success: treeRecord.success !== false,
+          objectPath: asString((args as Record<string, unknown>).objectPath),
+          tree,
+          propertyCount: propertyEntries.length,
+          sectionCount: flattened.filter((entry) => (asString(entry.kind)?.toLowerCase() ?? '') === 'section').length,
+          properties: propertyEntries,
+          descriptorCount: descriptor.length,
+          issues
+        });
+      }
+      return cleanObject({
+        success: treeRecord.success !== false,
+        objectPath: asString((args as Record<string, unknown>).objectPath),
+        properties: propertyEntries,
+        count: propertyEntries.length,
+        issues
+      });
+    }
     case 'set_mod_config_root_class': {
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
@@ -831,7 +970,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       }) as Record<string, unknown>);
     }
     case 'replace_mod_config_section_class': {
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
@@ -851,7 +990,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
     case 'repair_mod_config_widget_classes':
     case 'repair_mod_config_tree':
     case 'diff_mod_config_tree': {
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
@@ -929,7 +1068,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       return cleanObject(await executeAutomationRequest(tools, 'inspect', payload) as Record<string, unknown>);
     }
     case 'save_mod_config': {
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
@@ -996,6 +1135,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
       const descriptor = Array.isArray((descriptorRes as Record<string, unknown>).descriptor)
         ? (descriptorRes as Record<string, unknown>).descriptor as Array<Record<string, unknown>>
         : [];
+      const tree = (descriptorRes as Record<string, unknown>).tree;
       const issues = descriptor.flatMap((entry) => {
         const key = typeof entry.key === 'string' ? entry.key : '';
         const results: Array<Record<string, unknown>> = [];
@@ -1007,6 +1147,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         }
         return results;
       });
+      issues.push(...buildModConfigIssues(tree, descriptor));
       return cleanObject({
         success: true,
         valid: issues.filter((issue) => issue.severity === 'error').length === 0,
@@ -1088,7 +1229,7 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         return cleanObject(diff);
       }
 
-      const objectPath = await resolveObjectPath(args, tools);
+      const objectPath = await resolveWorkingModConfigObjectPath(args, tools);
       if (!objectPath) {
         throw new Error('Invalid objectPath: must be a non-empty string');
       }
@@ -1275,6 +1416,69 @@ export async function handleInspectTools(action: string, args: HandlerArgs, tool
         widgetPath: variants.assetObjectPath,
         variants,
         inspection: res
+      });
+    }
+    case 'inspect_blueprint_asset': {
+      const variantsRes = await handleInspectTools('resolve_blueprint_variants', args, tools);
+      const variants = variantsRes as Record<string, unknown>;
+      const blueprintPath = String(variants.assetObjectPath ?? variants.generatedClassPath ?? '');
+      const blueprintSummary = await handleBlueprintGet({
+        ...(args as Record<string, unknown>),
+        blueprintPath
+      }, tools);
+      const graphsRes = await executeAutomationRequest(tools, 'manage_blueprint_graph', {
+        subAction: 'list_graphs',
+        blueprintPath,
+        assetPath: blueprintPath,
+        graphName: 'EventGraph'
+      }) as Record<string, unknown>;
+      const graphs = Array.isArray(graphsRes.graphs) ? graphsRes.graphs as Array<Record<string, unknown>> : [];
+      const graphSummaries = await Promise.all(graphs.map(async (graph) => {
+        const graphName = asString(graph.graphName) ?? 'EventGraph';
+        const details = await executeAutomationRequest(tools, 'manage_blueprint_graph', {
+          subAction: 'get_graph_details',
+          blueprintPath,
+          assetPath: blueprintPath,
+          graphName
+        }) as Record<string, unknown>;
+        return cleanObject({
+          graphName,
+          graphPath: details.graphPath ?? graph.graphPath,
+          nodeCount: details.nodeCount,
+          commentGroupCount: Array.isArray(details.commentGroups) ? details.commentGroups.length : 0,
+          connectionCount: Array.isArray(details.nodes)
+            ? (details.nodes as Array<Record<string, unknown>>).reduce((sum, node) => {
+                const summary = toRecord(node.connectionSummary);
+                return sum + Number(summary.totalLinkCount ?? 0);
+              }, 0)
+            : undefined,
+          isNestedGraph: graph.isNestedGraph,
+          outerNodeId: graph.outerNodeId
+        }) as Record<string, unknown>;
+      }));
+      const classInspection = await executeAutomationRequest(tools, 'inspect', {
+        action: 'inspect_object',
+        objectPath: String(variants.generatedClassPath ?? variants.assetObjectPath ?? ''),
+        detailed: true
+      }) as InspectResponse;
+      const cdoInspection = await executeAutomationRequest(tools, 'inspect', {
+        action: 'inspect_object',
+        objectPath: String(variants.cdoPath ?? variants.generatedClassPath ?? variants.assetObjectPath ?? ''),
+        detailed: true
+      }) as InspectResponse;
+
+      return cleanObject({
+        success: true,
+        blueprintPath,
+        variants,
+        generatedClass: variants.generatedClassPath,
+        cdoPath: variants.cdoPath,
+        blueprint: (blueprintSummary as Record<string, unknown>).blueprint,
+        classInspection,
+        cdoInspection,
+        graphs,
+        graphSummaries,
+        graphCount: graphs.length
       });
     }
     case 'verify_class_loadability':
