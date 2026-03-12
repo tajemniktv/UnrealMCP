@@ -85,3 +85,4 @@ Delegate wiring is picky: binding a delegate requires selecting the delegate pro
 Partial tool coverage / inconsistent actions: some blueprint/graph actions exist but their sub-actions (connect, set-pin) are limited or undocumented in the MCP layer I was calling, so automated wiring may fail even after node creation.
 
 Editor-state dependency: these operations depend on assets/instances loaded and named exactly as in-editor; if an asset is not loaded or referenced in the same way, the tooling fails.
+
