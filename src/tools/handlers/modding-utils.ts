@@ -129,7 +129,7 @@ export function deriveBlueprintVariants(inputPath: string): Record<string, unkno
   const packagePath = normalized.includes('.') ? normalized.split('.')[0] : normalized;
   const objectName = normalized.includes('.') ? normalized.split('.').pop() ?? '' : path.posix.basename(normalized);
 
-  let assetObjectPath = normalized;
+  let assetObjectPath: string;
   let generatedClassPath = '';
   let cdoPath = '';
 
