@@ -536,8 +536,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
         {TEXT("Literal"), TEXT("K2Node_Literal")},
     };
 
-    // Helper: Try to find a UK2Node subclass by name
-    auto FindNodeClassByName = [](const FString &TypeName) -> UClass * {
+    // Helper: Try to find a UK2Node subclass by name and collect suggestions
+    auto FindNodeClassByName = [](const FString &TypeName, TArray<FString> &OutSuggestions) -> UClass * {
       // First check for aliases
       FString ResolvedName = TypeName;
       if (const FString *Alias = NodeTypeAliases.Find(TypeName)) {
@@ -566,6 +566,11 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
           if (ClassName.Equals(NameToMatch, ESearchCase::IgnoreCase)) {
             return *It;
           }
+        }
+
+        // Suggestion logic: record class names that contain the query or vice versa
+        if (ClassName.Contains(ResolvedName) || ResolvedName.Contains(ClassName)) {
+          OutSuggestions.Add(ClassName);
         }
       }
       return nullptr;
