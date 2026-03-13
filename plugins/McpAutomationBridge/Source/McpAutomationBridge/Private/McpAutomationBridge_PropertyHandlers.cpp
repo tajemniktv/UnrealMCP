@@ -154,15 +154,24 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
       // ActorLocation
     if (PropertyName.Equals(TEXT("ActorLocation"), ESearchCase::IgnoreCase)) {
           FVector NewLoc = FVector::ZeroVector;
+          bool bValidConversion = false;
           if (ValueField->Type == EJson::Object)
           {
-              McpHandlerUtils::JsonToVector(ValueField->AsObject(), NewLoc);
+              bValidConversion = McpHandlerUtils::JsonToVector(ValueField->AsObject(), NewLoc);
           }
           else if (ValueField->Type == EJson::Array)
           {
-              // Array to Vector not supported via Handler Utils
+              // Array to Vector not supported via Handler Utils - skip applying default
+              SendAutomationError(RequestingSocket, RequestId, TEXT("Array format for ActorLocation not supported. Use {x, y, z} object format."), TEXT("INVALID_FORMAT"));
+              return true;
           }
-          
+
+          if (!bValidConversion)
+          {
+              SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to parse ActorLocation value"), TEXT("PARSE_ERROR"));
+              return true;
+          }
+
           Actor->SetActorLocation(NewLoc);
           
           TSharedPtr<FJsonObject> ResultPayload = McpHandlerUtils::CreateResultObject();
@@ -178,15 +187,24 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
       if (PropertyName.Equals(TEXT("ActorRotation"), ESearchCase::IgnoreCase))
       {
           FRotator NewRot = FRotator::ZeroRotator;
+          bool bValidConversion = false;
           if (ValueField->Type == EJson::Object)
           {
-              McpHandlerUtils::JsonToRotator(ValueField->AsObject(), NewRot);
+              bValidConversion = McpHandlerUtils::JsonToRotator(ValueField->AsObject(), NewRot);
           }
           else if (ValueField->Type == EJson::Array)
           {
-              // Array to Rotator not supported via Handler Utils
+              // Array to Rotator not supported via Handler Utils - skip applying default
+              SendAutomationError(RequestingSocket, RequestId, TEXT("Array format for ActorRotation not supported. Use {pitch, yaw, roll} object format."), TEXT("INVALID_FORMAT"));
+              return true;
           }
-          
+
+          if (!bValidConversion)
+          {
+              SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to parse ActorRotation value"), TEXT("PARSE_ERROR"));
+              return true;
+          }
+
           Actor->SetActorRotation(NewRot);
           
           TSharedPtr<FJsonObject> ResultPayload = McpHandlerUtils::CreateResultObject();
@@ -203,15 +221,24 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
           PropertyName.Equals(TEXT("ActorScale3D"), ESearchCase::IgnoreCase))
       {
           FVector NewScale = FVector::OneVector;
+          bool bValidConversion = false;
           if (ValueField->Type == EJson::Object)
           {
-              McpHandlerUtils::JsonToVector(ValueField->AsObject(), NewScale);
+              bValidConversion = McpHandlerUtils::JsonToVector(ValueField->AsObject(), NewScale);
           }
           else if (ValueField->Type == EJson::Array)
           {
-              // Array to Vector not supported via Handler Utils
+              // Array to Vector not supported via Handler Utils - skip applying default
+              SendAutomationError(RequestingSocket, RequestId, TEXT("Array format for ActorScale not supported. Use {x, y, z} object format."), TEXT("INVALID_FORMAT"));
+              return true;
           }
-          
+
+          if (!bValidConversion)
+          {
+              SendAutomationError(RequestingSocket, RequestId, TEXT("Failed to parse ActorScale value"), TEXT("PARSE_ERROR"));
+              return true;
+          }
+
           Actor->SetActorScale3D(NewScale);
           
           TSharedPtr<FJsonObject> ResultPayload = McpHandlerUtils::CreateResultObject();

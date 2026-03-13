@@ -727,6 +727,7 @@ namespace McpHandlerUtils
 #if WITH_EDITOR && MCP_HAS_EDGRAPH_SCHEMA_K2
 
 #include "EdGraphSchema_K2.h"
+#include "K2Node_VariableGet.h"
 
 namespace McpBlueprintUtils
 {
