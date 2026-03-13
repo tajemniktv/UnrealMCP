@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ITools } from '../../../src/types/tool-interfaces.js';
-import { handleBlueprintTools } from '../../../src/tools/handlers/blueprint-handlers.js';
 import { handleBlueprintGet } from '../../../src/tools/handlers/blueprint-handlers.js';
 import { executeAutomationRequest } from '../../../src/tools/handlers/common-handlers.js';
 
