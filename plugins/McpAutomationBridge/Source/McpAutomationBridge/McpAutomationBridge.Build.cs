@@ -301,7 +301,20 @@ PublicDependencyModuleNames.AddRange(new string[]
         // TODO: Fix variable shadowing in handler files, then remove this override
         if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion >= 6)
         {
-            CppCompileWarningSettings.ShadowVariableWarningLevel = WarningLevel.Warning;
+            try
+            {
+                Type SettingsType = typeof(ReadOnlyTargetRules).Assembly.GetType("UnrealBuildTool.CppCompileWarningSettings");
+                Type WarningLevelType = typeof(ReadOnlyTargetRules).Assembly.GetType("UnrealBuildTool.WarningLevel");
+                if (SettingsType != null && WarningLevelType != null)
+                {
+                    System.Reflection.PropertyInfo Prop = SettingsType.GetProperty("ShadowVariableWarningLevel", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    if (Prop != null)
+                    {
+                        Prop.SetValue(null, Enum.Parse(WarningLevelType, "Warning"));
+                    }
+                }
+            }
+            catch (Exception) { }
         }
     }
 
