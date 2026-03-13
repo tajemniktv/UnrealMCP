@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ITools } from '../../../src/types/tool-interfaces.js';
 import { handleBlueprintGet } from '../../../src/tools/handlers/blueprint-handlers.js';
+import { handleBlueprintGraph } from '../../../src/tools/handlers/graph-handlers.js';
 import { executeAutomationRequest } from '../../../src/tools/handlers/common-handlers.js';
 
 vi.mock('../../../src/tools/handlers/common-handlers.js', () => ({

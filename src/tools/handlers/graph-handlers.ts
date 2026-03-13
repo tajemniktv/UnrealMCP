@@ -94,7 +94,7 @@ export async function handleGraphTools(toolName: string, action: string, args: G
     }
 }
 
-async function handleBlueprintGraph(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
+export async function handleBlueprintGraph(action: string, args: GraphArgs, tools: ITools): Promise<Record<string, unknown>> {
     const processedArgs: ProcessedGraphArgs = { ...args, subAction: action };
 
     // Default graphName
