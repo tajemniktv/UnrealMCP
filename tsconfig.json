@@ -29,7 +29,7 @@
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "allowImportingTsExtensions": true,
+    "allowImportingTsExtensions": false,
     
     // Emit
     "declaration": true,
@@ -42,7 +42,7 @@
     // Performance
     "skipLibCheck": true,
   "incremental": false,
-  "noEmit": true,
+  "noEmit": false,
     
     "types": ["node"],
     "noEmitOnError": false
