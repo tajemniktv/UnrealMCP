@@ -290,6 +290,19 @@ PublicDependencyModuleNames.AddRange(new string[]
             PublicDefinitions.Add("MCP_WITH_GAMEPLAYABILITIES=0");
             PublicDefinitions.Add("MCP_WITH_SML=0");
         }
+
+        // ============================================================================
+        // COMPILER WARNING SETTINGS (UE 5.6+ Compatibility)
+        // ============================================================================
+        // UE 5.6+ treats variable shadowing (C4456, C4458, C4459) as errors by default.
+        // Use the proper UE BuildTool API to set shadow warnings to Warning level instead of Error.
+        // This allows compilation while we systematically fix shadowing issues.
+        // Reference: Engine/Source/Programs/UnrealBuildTool/Configuration/CppCompileWarnings.cs (line 93)
+        // TODO: Fix variable shadowing in handler files, then remove this override
+        if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion >= 6)
+        {
+            CppCompileWarningSettings.ShadowVariableWarningLevel = WarningLevel.Warning;
+        }
     }
 
     /// <summary>
