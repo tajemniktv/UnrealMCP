@@ -39,15 +39,15 @@
 // - Cycle detection prevents circular parent-child relationships
 // =============================================================================
 
+#include "McpAutomationBridge_SCSHandlers.h"
 // =============================================================================
-// Version Compatibility Header (MUST BE FIRST)
+// Version Compatibility Header
 // =============================================================================
 #include "McpVersionCompatibility.h"
 
 // =============================================================================
 // Core Headers
 // =============================================================================
-#include "McpAutomationBridge_SCSHandlers.h"
 #include "Dom/JsonObject.h"
 #include "Async/Async.h"
 #include "McpAutomationBridgeHelpers.h"

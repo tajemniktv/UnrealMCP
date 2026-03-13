@@ -29,15 +29,15 @@
 // - Safe asset saving via McpSafeAssetSave
 // =============================================================================
 
+#include "McpAutomationBridge_BlueprintCreationHandlers.h"
 // =============================================================================
-// Version Compatibility Header (MUST BE FIRST)
+// Version Compatibility Header
 // =============================================================================
 #include "McpVersionCompatibility.h"
 
 // =============================================================================
 // Core Headers
 // =============================================================================
-#include "McpAutomationBridge_BlueprintCreationHandlers.h"
 #include "Dom/JsonObject.h"
 #include "HAL/PlatformTime.h"
 #include "McpAutomationBridgeGlobals.h"

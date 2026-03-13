@@ -2401,9 +2401,9 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
         Info->SetStringField(TEXT("parentClass"), Blueprint->ParentClass ? Blueprint->ParentClass->GetName() : TEXT("Unknown"));
         
         // Check for components
-        bool bbHasWeaponMesh = false;
-        bool bbHasProjectileMovement = false;
-        bool bbHasCollision = false;
+        bool bHasWeaponMesh = false;
+        bool bHasProjectileMovement = false;
+        bool bHasCollision = false;
         TArray<TSharedPtr<FJsonValue>> ComponentList;
         
         if (Blueprint->SimpleConstructionScript)

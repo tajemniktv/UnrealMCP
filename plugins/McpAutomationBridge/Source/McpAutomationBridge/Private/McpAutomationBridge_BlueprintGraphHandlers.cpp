@@ -455,12 +455,28 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
 
       // Return early with error if function not found (before NodeCreator)
       if (!Func) {
-        SendAutomationError(
-            RequestingSocket, RequestId,
-            FString::Printf(
-                TEXT("Could not find function '%s::%s' for node type '%s'"),
-                *ClassName, *FuncName, *NodeType),
-            TEXT("FUNCTION_NOT_FOUND"));
+        // Collect suggestions from the resolved class (if any)
+        TArray<FString> FuncSuggestions;
+        if (Class) {
+          for (TFieldIterator<UFunction> FuncIt(Class, EFieldIteratorFlags::IncludeSuper); FuncIt; ++FuncIt) {
+            FString FoundFuncName = FuncIt->GetName();
+            if (FoundFuncName.Contains(FuncName) || FuncName.Contains(FoundFuncName)) {
+              FuncSuggestions.Add(FoundFuncName);
+            }
+          }
+        }
+
+        FString SuggestionStr;
+        for (int32 i = 0; i < FMath::Min(5, FuncSuggestions.Num()); ++i) {
+          SuggestionStr += FuncSuggestions[i] + (i < FMath::Min(5, FuncSuggestions.Num()) - 1 ? TEXT(", ") : TEXT(""));
+        }
+
+        FString ErrorMsg = FString::Printf(TEXT("Could not find function '%s::%s' for node type '%s'."), *ClassName, *FuncName, *NodeType);
+        if (!SuggestionStr.IsEmpty()) {
+          ErrorMsg += FString::Printf(TEXT(" Did you mean: %s?"), *SuggestionStr);
+        }
+        SendAutomationError(RequestingSocket, RequestId, ErrorMsg, TEXT("FUNCTION_NOT_FOUND"));
+
         return true;
       }
 
@@ -645,10 +661,38 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
         CallFuncNode->SetFromFunction(Func);
         FinalizeAndReport(NodeCreator, CallFuncNode);
       } else {
-        SendAutomationError(
-            RequestingSocket, RequestId,
-            FString::Printf(TEXT("Function '%s' not found"), *MemberName),
-            TEXT("FUNCTION_NOT_FOUND"));
+        // Build a list of candidate classes to search for similar function names
+        TArray<UClass*> CandidateClasses;
+        if (!MemberClass.IsEmpty()) {
+          if (UClass *C = ResolveUClass(MemberClass)) CandidateClasses.Add(C);
+        } else {
+          if (Blueprint && Blueprint->GeneratedClass) CandidateClasses.Add(Blueprint->GeneratedClass);
+          CandidateClasses.Add(UKismetSystemLibrary::StaticClass());
+          CandidateClasses.Add(UGameplayStatics::StaticClass());
+          CandidateClasses.Add(UKismetMathLibrary::StaticClass());
+        }
+
+        TArray<FString> FuncSuggestions;
+        for (UClass* C : CandidateClasses) {
+          if (!C) continue;
+          for (TFieldIterator<UFunction> FuncIt(C, EFieldIteratorFlags::IncludeSuper); FuncIt; ++FuncIt) {
+            FString FoundFuncName = FuncIt->GetName();
+            if (FoundFuncName.Contains(MemberName) || MemberName.Contains(FoundFuncName)) {
+              FuncSuggestions.Add(FoundFuncName);
+            }
+          }
+        }
+
+        FString SuggestionStr;
+        for (int32 i = 0; i < FMath::Min(5, FuncSuggestions.Num()); ++i) {
+          SuggestionStr += FuncSuggestions[i] + (i < FMath::Min(5, FuncSuggestions.Num()) - 1 ? TEXT(", ") : TEXT(""));
+        }
+        FString ErrorMsg = FString::Printf(TEXT("Function '%s' not found."), *MemberName);
+        if (!SuggestionStr.IsEmpty()) {
+          ErrorMsg += FString::Printf(TEXT(" Did you mean: %s?"), *SuggestionStr);
+        }
+        SendAutomationError(RequestingSocket, RequestId, ErrorMsg, TEXT("FUNCTION_NOT_FOUND"));
+
       }
       return true;
     }
@@ -749,7 +793,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
     }
 
     // ========== DYNAMIC FALLBACK: Create ANY node class by name ==========
-    UClass *NodeClass = FindNodeClassByName(NodeType);
+    TArray<FString> NodeSuggestions;
+    UClass *NodeClass = FindNodeClassByName(NodeType, NodeSuggestions);
     if (NodeClass) {
       UEdGraphNode *NewNode = NewObject<UEdGraphNode>(TargetGraph, NodeClass);
       if (NewNode) {
@@ -772,12 +817,16 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintGraphAction(
                             TEXT("CREATE_FAILED"));
       }
     } else {
-      SendAutomationError(
-          RequestingSocket, RequestId,
-          FString::Printf(TEXT("Node type '%s' not found. Use list_node_types "
-                               "to see available types."),
-                          *NodeType),
-          TEXT("NODE_TYPE_NOT_FOUND"));
+      FString SuggestionStr;
+      for (int32 i = 0; i < FMath::Min(5, NodeSuggestions.Num()); ++i) {
+        SuggestionStr += NodeSuggestions[i] + (i < FMath::Min(5, NodeSuggestions.Num()) - 1 ? TEXT(", ") : TEXT(""));
+      }
+      FString Msg = FString::Printf(TEXT("Node type '%s' not found."), *NodeType);
+      if (!SuggestionStr.IsEmpty()) {
+        Msg += FString::Printf(TEXT(" Did you mean: %s?"), *SuggestionStr);
+      }
+      Msg += TEXT(" Use list_node_types to see available types.");
+      SendAutomationError(RequestingSocket, RequestId, Msg, TEXT("NODE_TYPE_NOT_FOUND"));
     }
     return true;
   } else if (SubAction == TEXT("connect_pins")) {

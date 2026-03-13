@@ -93,21 +93,14 @@ bool UMcpAutomationBridgeSubsystem::HandleAssetQueryAction(
     {
         FString AssetPath;
         Payload->TryGetStringField(TEXT("assetPath"), AssetPath);
-        bool bHardDependencies = false;
-        Payload->TryGetBoolField(TEXT("recursive"), bHardDependencies);
+        bool bRecursive = false;
+        Payload->TryGetBoolField(TEXT("recursive"), bRecursive);
 
         FAssetRegistryModule& AssetRegistryModule =
             FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 
         TArray<FName> Dependencies;
 
-        UE::AssetRegistry::EDependencyQuery Query = bHardDependencies
-            ? UE::AssetRegistry::EDependencyQuery::Hard
-            : UE::AssetRegistry::EDependencyQuery::Soft;
-
-        // Note: bRecursive naming is confusing
-        // true = Hard dependencies (recursive), false = Soft dependencies
-        // Consider renaming to bIncludeSoftDependencies
         UE::AssetRegistry::EDependencyQuery Query = bRecursive
             ? UE::AssetRegistry::EDependencyQuery::Hard
             : UE::AssetRegistry::EDependencyQuery::Soft;
