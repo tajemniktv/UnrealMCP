@@ -91,6 +91,7 @@
 // -----------------------------------------------------------------------------
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetToolsModule.h"
+#include "EngineUtils.h"
 #include "AssetViewUtils.h"
 #include "EditorAssetLibrary.h"
 #include "Engine/StaticMesh.h"

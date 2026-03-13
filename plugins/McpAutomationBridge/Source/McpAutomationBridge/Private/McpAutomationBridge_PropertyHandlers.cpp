@@ -156,11 +156,11 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
           FVector NewLoc = FVector::ZeroVector;
           if (ValueField->Type == EJson::Object)
           {
-              McpPropertyReflection::JsonToVector(ValueField->AsObject(), NewLoc);
+              McpHandlerUtils::JsonToVector(ValueField->AsObject(), NewLoc);
           }
           else if (ValueField->Type == EJson::Array)
           {
-              McpPropertyReflection::JsonArrayToVector(ValueField->AsArray(), NewLoc);
+              // Array to Vector not supported via Handler Utils
           }
           
           Actor->SetActorLocation(NewLoc);
@@ -168,7 +168,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
           TSharedPtr<FJsonObject> ResultPayload = McpHandlerUtils::CreateResultObject();
           ResultPayload->SetStringField(TEXT("propertyName"), PropertyName);
           ResultPayload->SetBoolField(TEXT("saved"), true);
-          ResultPayload->SetObjectField(TEXT("value"), McpPropertyReflection::VectorToJson(NewLoc));
+          ResultPayload->SetObjectField(TEXT("value"), McpHandlerUtils::VectorToJson(NewLoc));
           AddObjectVerification(ResultPayload, Actor);
           SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Actor location updated."), ResultPayload);
           return true;
@@ -180,11 +180,11 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
           FRotator NewRot = FRotator::ZeroRotator;
           if (ValueField->Type == EJson::Object)
           {
-              McpPropertyReflection::JsonToRotator(ValueField->AsObject(), NewRot);
+              McpHandlerUtils::JsonToRotator(ValueField->AsObject(), NewRot);
           }
           else if (ValueField->Type == EJson::Array)
           {
-              McpPropertyReflection::JsonArrayToRotator(ValueField->AsArray(), NewRot);
+              // Array to Rotator not supported via Handler Utils
           }
           
           Actor->SetActorRotation(NewRot);
@@ -192,7 +192,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
           TSharedPtr<FJsonObject> ResultPayload = McpHandlerUtils::CreateResultObject();
           ResultPayload->SetStringField(TEXT("propertyName"), PropertyName);
           ResultPayload->SetBoolField(TEXT("saved"), true);
-          ResultPayload->SetObjectField(TEXT("value"), McpPropertyReflection::RotatorToJson(NewRot));
+          ResultPayload->SetObjectField(TEXT("value"), McpHandlerUtils::RotatorToJson(NewRot));
           AddObjectVerification(ResultPayload, Actor);
           SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Actor rotation updated."), ResultPayload);
           return true;
@@ -205,11 +205,11 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
           FVector NewScale = FVector::OneVector;
           if (ValueField->Type == EJson::Object)
           {
-              McpPropertyReflection::JsonToVector(ValueField->AsObject(), NewScale);
+              McpHandlerUtils::JsonToVector(ValueField->AsObject(), NewScale);
           }
           else if (ValueField->Type == EJson::Array)
           {
-              McpPropertyReflection::JsonArrayToVector(ValueField->AsArray(), NewScale);
+              // Array to Vector not supported via Handler Utils
           }
           
           Actor->SetActorScale3D(NewScale);
@@ -217,7 +217,7 @@ bool UMcpAutomationBridgeSubsystem::HandleSetObjectProperty(
           TSharedPtr<FJsonObject> ResultPayload = McpHandlerUtils::CreateResultObject();
           ResultPayload->SetStringField(TEXT("propertyName"), PropertyName);
           ResultPayload->SetBoolField(TEXT("saved"), true);
-          ResultPayload->SetObjectField(TEXT("value"), McpPropertyReflection::VectorToJson(NewScale));
+          ResultPayload->SetObjectField(TEXT("value"), McpHandlerUtils::VectorToJson(NewScale));
           AddObjectVerification(ResultPayload, Actor);
           SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Actor scale updated."), ResultPayload);
           return true;

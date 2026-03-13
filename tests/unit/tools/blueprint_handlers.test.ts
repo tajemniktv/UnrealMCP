@@ -91,7 +91,7 @@ describe('Blueprint Handlers', () => {
   it('normalizes human-friendly connect_pins arguments', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('connect_pins', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           sourceNode: 'NodeA',
           sourcePin: 'Then',
@@ -118,7 +118,7 @@ describe('Blueprint Handlers', () => {
   it('supports Node.Pin shorthand for connect_pins', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('connect_pins', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           sourceNode: 'NodeA.Then',
           targetNode: 'NodeB.Execute'
@@ -140,7 +140,7 @@ describe('Blueprint Handlers', () => {
   it('returns a clear validation error when connect_pins is underspecified', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('connect_pins', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           sourceNode: 'NodeA'
       }, tools);
@@ -154,7 +154,7 @@ describe('Blueprint Handlers', () => {
   it('executes batch_graph_actions with shared blueprint context', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('batch_graph_actions', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           graphName: 'EventGraph',
           actions: [
@@ -201,7 +201,7 @@ describe('Blueprint Handlers', () => {
           .mockResolvedValueOnce({ success: true, message: 'ok' })
           .mockResolvedValueOnce({ success: false, error: 'NODE_NOT_FOUND', message: 'missing node' });
 
-      const result = await handleBlueprintTools('batch_graph_actions', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           actions: [
               { action: 'create_reroute_node', args: { x: 100, y: 200 } },
@@ -218,7 +218,7 @@ describe('Blueprint Handlers', () => {
   it('returns a dry-run plan for batch_graph_actions without executing bridge calls', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('batch_graph_actions', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           dryRun: true,
           actions: [
@@ -236,7 +236,7 @@ describe('Blueprint Handlers', () => {
   it('forwards find_nodes to the blueprint graph bridge action', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('find_nodes', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           query: 'shadow',
           commentTag: 'config-binding',
@@ -262,7 +262,7 @@ describe('Blueprint Handlers', () => {
   it('forwards list_graphs so collapsed/nested graphs can be discovered', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('list_graphs', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test'
       }, tools);
 
@@ -307,7 +307,7 @@ describe('Blueprint Handlers', () => {
           ]
       });
 
-      const result = await handleBlueprintTools('get_connections', {
+      const result = await handleBlueprintGraph('get_connections', {
           blueprintPath: '/Game/Test/BP_Test',
           graphName: 'EventGraph'
       }, tools);
@@ -352,7 +352,7 @@ describe('Blueprint Handlers', () => {
           };
       });
 
-      const result = await handleBlueprintTools('get_graph_topology', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           includeSubGraphs: true
       }, tools);
@@ -385,7 +385,7 @@ describe('Blueprint Handlers', () => {
           ]
       });
 
-      const result = await handleBlueprintTools('find_call_function_nodes', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           memberClass: 'UTajsGraphRuntimeBlueprintLibrary',
           functionName: 'ApplyManagedPPVFromModConfig'
@@ -399,7 +399,7 @@ describe('Blueprint Handlers', () => {
   it('forwards create_comment_group to the blueprint graph bridge action', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('create_comment_group', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           graphName: 'EventGraph',
           commentTitle: 'Shadow Cluster',
@@ -430,7 +430,7 @@ describe('Blueprint Handlers', () => {
   it('forwards collapse_to_subgraph to the blueprint graph bridge action', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('collapse_to_subgraph', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           graphName: 'EventGraph',
           commentNodeId: 'Comment123',
@@ -454,7 +454,7 @@ describe('Blueprint Handlers', () => {
   it('forwards expand_collapsed_node to the blueprint graph bridge action', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('expand_collapsed_node', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           graphName: 'EventGraph',
           nodeId: 'CompositeNode123'
@@ -476,7 +476,7 @@ describe('Blueprint Handlers', () => {
   it('forwards disable_subgraph to the blueprint graph bridge action', async () => {
       const tools = mockTools as any;
 
-      const result = await handleBlueprintTools('disable_subgraph', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           commentNodeId: 'Comment123',
           reason: 'legacy path replaced',
@@ -520,7 +520,7 @@ describe('Blueprint Handlers', () => {
           return { success: true, message: 'ok' };
       });
 
-      const result = await handleBlueprintTools('retarget_binding_cluster', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           commentNodeId: 'Comment123',
           newSection: 'Rendering',
@@ -568,7 +568,7 @@ describe('Blueprint Handlers', () => {
           return { success: true, message: 'ok' };
       });
 
-      const result = await handleBlueprintTools('replace_binding_cluster', {
+      const result = await handleBlueprintGraph('manage_blueprint_graph', {
           blueprintPath: '/Game/Test/BP_Test',
           commentNodeId: 'CommentOld',
           newSection: 'Rendering',

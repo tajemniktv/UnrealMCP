@@ -513,7 +513,6 @@ bool FBlueprintCreationHandlers::HandleBlueprintCreate(
   // -------------------------------------------------------------------------
   // Resolve Parent Class
   // -------------------------------------------------------------------------
-  UBlueprintFactory *Factory = NewObject<UBlueprintFactory>();
   const FString NormalizedParentClassSpec =
       ParentClassSpec.ToLower().Replace(TEXT(" "), TEXT(""));
   const bool bRequestedFunctionLibraryByParentSpec =

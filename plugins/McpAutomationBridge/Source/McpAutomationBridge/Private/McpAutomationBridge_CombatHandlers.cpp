@@ -382,32 +382,6 @@ bool UMcpAutomationBridgeSubsystem::HandleManageCombatAction(
         // Build response using standardized helper
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("blueprintPath"), Blueprint->GetPathName());
-        Result->SetNumberField(TEXT("baseDamage"), BaseDamage);
-        Result->SetNumberField(TEXT("fireRate"), FireRate);
-        Result->SetNumberField(TEXT("range"), Range);
-        Result->SetNumberField(TEXT("spread"), Spread);
-        
-        SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Weapon blueprint created successfully."), Result);
-        return true;
-    }
-
-    // configure_weapon_mesh
-    if (SubAction == TEXT("configure_weapon_mesh"))
-        McpHandlerUtils::AddVerification(Result, Blueprint);
-        SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Weapon blueprint created successfully."), Result);
-        return true;
-    }
-
-    // configure_weapon_mesh
-    if (SubAction == TEXT("configure_weapon_mesh"))
-        McpHandlerUtils::AddVerification(Result, Blueprint);
-        SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Weapon blueprint created successfully."), Result);
-        return true;
-    }
-        McpHandlerUtils::AddVerification(Result, Blueprint);
-        SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Weapon blueprint created successfully."), Result);
-
-        TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("blueprintPath"), Blueprint->GetPathName());
         Result->SetNumberField(TEXT("baseDamage"), BaseDamage);
         Result->SetNumberField(TEXT("fireRate"), FireRate);

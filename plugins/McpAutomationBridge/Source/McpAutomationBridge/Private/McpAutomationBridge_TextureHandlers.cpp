@@ -183,7 +183,8 @@ static UTexture2D* CreateEmptyTexture(const FString& PackagePath, const FString&
     // Add mip 0
     int32 NumBlocksX = Width / GPixelFormats[Format].BlockSizeX;
     int32 NumBlocksY = Height / GPixelFormats[Format].BlockSizeY;
-    FTexture2DMipMap& Mip = NewTexture->GetPlatformData()->Mips.AddDefaulted_GetRef();
+    NewTexture->GetPlatformData()->Mips.Add(new FTexture2DMipMap());
+    FTexture2DMipMap& Mip = *NewTexture->GetPlatformData()->Mips.Last();
     Mip.SizeX = Width;
     Mip.SizeY = Height;
     
