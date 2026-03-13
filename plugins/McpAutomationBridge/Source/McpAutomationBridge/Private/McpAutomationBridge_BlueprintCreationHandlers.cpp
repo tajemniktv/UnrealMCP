@@ -522,6 +522,7 @@ bool FBlueprintCreationHandlers::HandleBlueprintCreate(
       LowerType == TEXT("functionlibrary") ||
       LowerType == TEXT("function_library") ||
       LowerType == TEXT("function library");
+
   UClass *ResolvedParent = nullptr;
   if (!ParentClassSpec.IsEmpty()) {
     if (ParentClassSpec.StartsWith(TEXT("/Script/"))) {
@@ -596,6 +597,11 @@ bool FBlueprintCreationHandlers::HandleBlueprintCreate(
         ResolvedParent ? ResolvedParent : AActor::StaticClass();
     Factory = BlueprintFactory;
   }
+
+
+  // -------------------------------------------------------------------------
+  // Create Blueprint Asset
+  // -------------------------------------------------------------------------
   FAssetToolsModule &AssetToolsModule =
       FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
   UObject *NewObj = AssetToolsModule.Get().CreateAsset(

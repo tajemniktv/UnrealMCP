@@ -397,8 +397,10 @@ bool UMcpAutomationBridgeSubsystem::HandleManageGASAction(
         TSharedPtr<FJsonObject> Result = McpHandlerUtils::CreateResultObject();
         Result->SetStringField(TEXT("name"), Name);
         Result->SetStringField(TEXT("parentClass"), TEXT("AttributeSet"));
+        Result->SetBoolField(TEXT("reusedExisting"), bReusedExisting);
         McpHandlerUtils::AddVerification(Result, Blueprint);
-        SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Attribute set created"), Result);
+        SendAutomationResponse(RequestingSocket, RequestId, true, 
+            bReusedExisting ? TEXT("Attribute set already exists") : TEXT("Attribute set created"), Result);
         return true;
     }
 
