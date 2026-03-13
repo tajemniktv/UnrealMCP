@@ -4367,7 +4367,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
                 // Key exists - deep merge if both are JSON objects
                 const TSharedPtr<FJsonObject> *ExistingObj = nullptr;
                 if (Pair.Value->Type == EJson::Object) {
-                  ExistingObj = EntryDefaults->TryGetObjectField(Pair.Key);
+                  // TryGetObjectField expects an out-parameter; call it
+                  EntryDefaults->TryGetObjectField(Pair.Key, ExistingObj);
                 }
                 if (ExistingObj && Pair.Value->AsObject().IsValid()) {
                   // Both are objects - deep merge sub-keys from registry
@@ -4404,7 +4405,8 @@ bool UMcpAutomationBridgeSubsystem::HandleBlueprintAction(
                 // Key exists - deep merge if both are JSON objects
                 const TSharedPtr<FJsonObject> *ExistingObj = nullptr;
                 if (Pair.Value->Type == EJson::Object) {
-                  ExistingObj = EntryMetadata->TryGetObjectField(Pair.Key);
+                  // TryGetObjectField expects an out-parameter; call it
+                  EntryMetadata->TryGetObjectField(Pair.Key, ExistingObj);
                 }
                 if (ExistingObj && Pair.Value->AsObject().IsValid()) {
                   // Both are objects - deep merge sub-keys from registry
