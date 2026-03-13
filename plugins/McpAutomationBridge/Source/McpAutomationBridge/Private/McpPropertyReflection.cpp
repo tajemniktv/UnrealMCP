@@ -498,7 +498,11 @@ bool SetPropertyValueFromString(UObject* Object, FProperty* Property, const FStr
         return false;
     }
 
-    const TCHAR* Result = Property->ImportText(*ValueString, Container, nullptr, PPF_None, nullptr, Property->GetName(), true);
+#if ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 1
+    const TCHAR* Result = Property->ImportText_Direct(*ValueString, Container, nullptr, PPF_None, nullptr);
+#else
+    const TCHAR* Result = Property->ImportText(*ValueString, Container, PPF_None, nullptr);
+#endif
     if (!Result)
     {
         if (OutError) *OutError = FString::Printf(TEXT("Failed to import value '%s' for property '%s'"), *ValueString, *Property->GetName());

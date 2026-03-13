@@ -8,6 +8,15 @@
 #include "McpAutomationBridgeHelpers.h"
 
 #if WITH_EDITOR
+#include "EngineUtils.h"
+#include "K2Node_CustomEvent.h"
+#include "K2Node_Event.h"
+#include "K2Node_VariableGet.h"
+#include "K2Node_FunctionEntry.h"
+#include "K2Node_FunctionResult.h"
+#endif
+
+#if WITH_EDITOR
 #include "Editor.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -922,7 +931,7 @@ TArray<TSharedPtr<FJsonValue>> CollectBlueprintFunctions(UBlueprint* Blueprint)
             if (UK2Node_FunctionEntry* EntryNode = Cast<UK2Node_FunctionEntry>(Node))
             {
                 // Collect input pins
-                for (const TSharedPtr<FUserPinInfo>& PinInfo : EntryNode->UserDefinedPins)
+                for (const TSharedPtr<FUserPinInfo> PinInfo : EntryNode->UserDefinedPins)
                 {
                     if (!PinInfo.IsValid())
                     {
@@ -938,7 +947,7 @@ TArray<TSharedPtr<FJsonValue>> CollectBlueprintFunctions(UBlueprint* Blueprint)
             else if (UK2Node_FunctionResult* ResultNode = Cast<UK2Node_FunctionResult>(Node))
             {
                 // Collect output pins
-                for (const TSharedPtr<FUserPinInfo>& PinInfo : ResultNode->UserDefinedPins)
+                for (const TSharedPtr<FUserPinInfo> PinInfo : ResultNode->UserDefinedPins)
                 {
                     if (!PinInfo.IsValid())
                     {

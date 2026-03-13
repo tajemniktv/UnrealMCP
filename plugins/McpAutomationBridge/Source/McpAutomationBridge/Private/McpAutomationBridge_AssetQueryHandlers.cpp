@@ -105,11 +105,6 @@ bool UMcpAutomationBridgeSubsystem::HandleAssetQueryAction(
             ? UE::AssetRegistry::EDependencyQuery::Hard
             : UE::AssetRegistry::EDependencyQuery::Soft;
 
-        FAssetRegistryModule& AssetRegistryModule = 
-            FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-
-        TArray<FName> Dependencies;
-
         // Note: bRecursive naming is confusing
         // true = Hard dependencies (recursive), false = Soft dependencies
         // Consider renaming to bIncludeSoftDependencies
