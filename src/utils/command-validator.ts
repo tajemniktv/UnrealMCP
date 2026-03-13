@@ -31,10 +31,6 @@ export class CommandValidator {
     private static readonly FORBIDDEN_TOKENS = [
         // Shell commands (Windows/Unix)
         'shutdown', 'reboot', 'rmdir', 'mklink',
-        // Python injection attempts
-        'import os', 'import subprocess', 'subprocess.', 'os.system',
-        'exec(', 'eval(', '__import__', 'import sys', 'import importlib',
-        'with open', 'open(', 'write(', 'read('
     ];
 
     /**
@@ -43,15 +39,6 @@ export class CommandValidator {
     private static readonly FORBIDDEN_PATTERNS = [
         // Dangerous shell commands (with word boundaries to prevent substring matching and allow flexible whitespace)
         /\b(?:rm|del|format|copy|move|start)\b/i,
-        // Python imports with whitespace
-        /import\s+(?:os|sys|subprocess|importlib|shutil)/i,
-        /from\s+(?:os|sys|subprocess|importlib|shutil)\s+import/i,
-        // Function calls with flexible whitespace before parenthesis
-        /(?:exec|eval|open|write|read|system)\s*\(/i,
-        // Specific dangerous constructs
-        /__import__\s*\(/i,
-        /subprocess\./i,
-        /os\.system/i,
         /start\s+"/i,
     ];
 
@@ -94,11 +81,6 @@ export class CommandValidator {
 
         const cmdLower = cmdTrimmed.toLowerCase();
 
-        // Check for 'py' or 'python' followed by any whitespace or end of string
-        // This catches 'py', 'py ', 'python', 'python ' etc. to prevent bypasses
-        if (/^(?:py|python)(?:\s|$)/.test(cmdLower)) {
-            throw new Error('Python console commands are blocked from external calls for safety.');
-        }
 
         // Use word-boundary matching to avoid false positives like 'show exit menu'
         if (this.DANGEROUS_PATTERNS.some(pattern => pattern.test(cmdLower))) {
