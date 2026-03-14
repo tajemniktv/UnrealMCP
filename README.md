@@ -1,5 +1,6 @@
 # Unreal Engine MCP Server
 
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/c0276bd899034b85a69d32990be5be42)](https://app.codacy.com/gh/tajemniktv/UnrealMCP?utm_source=github.com&utm_medium=referral&utm_content=tajemniktv/UnrealMCP&utm_campaign=Badge_Grade)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![NPM Package](https://img.shields.io/npm/v/unreal-engine-mcp-server)](https://www.npmjs.com/package/unreal-engine-mcp-server)
 [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-TypeScript-blue)](https://github.com/modelcontextprotocol/sdk)
