@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { interpretStandardResult } from '../../../src/utils/result-helpers.js';
+import { interpretStandardResult, InterpretedStandardResult } from '../../../src/utils/result-helpers.js';
 
 describe('interpretStandardResult', () => {
   const defaults = {
@@ -7,116 +7,107 @@ describe('interpretStandardResult', () => {
     failureMessage: 'Operation failed.',
   };
 
-  it('maps successful response correctly with message', () => {
-    const response = {
-      success: true,
-      message: 'Command executed successfully',
-    };
+  const testCases: Array<{
+    name: string;
+    response: unknown;
+    expected: Partial<InterpretedStandardResult>;
+  }> = [
+    {
+      name: 'successful response correctly with message',
+      response: { success: true, message: 'Command executed successfully' },
+      expected: {
+        success: true,
+        message: 'Command executed successfully',
+        error: undefined,
+        cleanText: 'Command executed successfully',
+        rawText: 'Command executed successfully',
+        payload: { success: true, message: 'Command executed successfully' },
+      },
+    },
+    {
+      name: 'successful response with defaults when message is missing',
+      response: { success: true },
+      expected: {
+        success: true,
+        message: defaults.successMessage,
+        error: undefined,
+        cleanText: undefined,
+        rawText: '',
+        payload: { success: true },
+      },
+    },
+    {
+      name: 'failure response with error correctly',
+      response: { success: false, error: 'An unexpected error occurred' },
+      expected: {
+        success: false,
+        message: defaults.failureMessage,
+        error: 'An unexpected error occurred',
+        payload: { success: false, error: 'An unexpected error occurred' },
+      },
+    },
+    {
+      name: 'failure response with message used as error if error is missing',
+      response: { success: false, message: 'Failed to find file' },
+      expected: {
+        success: false,
+        message: 'Failed to find file',
+        error: 'Failed to find file',
+        payload: { success: false, message: 'Failed to find file' },
+      },
+    },
+    {
+      name: 'failure response with defaults when missing error and message',
+      response: { success: false },
+      expected: {
+        success: false,
+        message: defaults.failureMessage,
+        error: defaults.failureMessage,
+        payload: { success: false },
+      },
+    },
+    {
+      name: 'arrays for warnings and details correctly',
+      response: { warnings: ['warning 1', 'warning 2'], details: ['detail 1'] },
+      expected: {
+        warnings: ['warning 1', 'warning 2'],
+        details: ['detail 1'],
+      },
+    },
+  ];
 
+  it.each(testCases)('maps $name', ({ response, expected }) => {
     const result = interpretStandardResult(response, defaults);
-
-    expect(result.success).toBe(true);
-    expect(result.message).toBe('Command executed successfully');
-    expect(result.error).toBeUndefined();
-    expect(result.cleanText).toBe('Command executed successfully');
-    expect(result.rawText).toBe('Command executed successfully');
-    expect(result.payload).toEqual(response);
-    expect(result.raw).toBe(response);
+    expect(result).toMatchObject(expected);
   });
 
-  it('maps successful response with defaults when message is missing', () => {
-    const response = {
-      success: true,
-    };
-
-    const result = interpretStandardResult(response, defaults);
-
-    expect(result.success).toBe(true);
-    expect(result.message).toBe(defaults.successMessage);
-    expect(result.error).toBeUndefined();
-    expect(result.cleanText).toBeUndefined();
-    expect(result.rawText).toBe('');
-    expect(result.payload).toEqual(response);
-  });
-
-  it('maps failure response with error correctly', () => {
-    const response = {
-      success: false,
-      error: 'An unexpected error occurred',
-    };
-
-    const result = interpretStandardResult(response, defaults);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toBe(defaults.failureMessage);
-    expect(result.error).toBe('An unexpected error occurred');
-    expect(result.payload).toEqual(response);
-  });
-
-  it('maps failure response with message used as error if error is missing', () => {
-    const response = {
-      success: false,
-      message: 'Failed to find file',
-    };
-
-    const result = interpretStandardResult(response, defaults);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toBe('Failed to find file');
-    expect(result.error).toBe('Failed to find file');
-    expect(result.payload).toEqual(response);
-  });
-
-  it('maps failure response with defaults when missing error and message', () => {
-    const response = {
-      success: false,
-    };
-
-    const result = interpretStandardResult(response, defaults);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toBe(defaults.failureMessage);
-    expect(result.error).toBe(defaults.failureMessage);
-    expect(result.payload).toEqual(response);
-  });
-
-  it('prioritizes message -> output -> result for rawText', () => {
-    const r1 = interpretStandardResult({ message: 'msg', output: 'out', result: 'res' }, defaults);
-    expect(r1.rawText).toBe('msg');
-
-    const r2 = interpretStandardResult({ output: 'out', result: 'res' }, defaults);
-    expect(r2.rawText).toBe('out');
-
-    const r3 = interpretStandardResult({ result: 'res' }, defaults);
-    expect(r3.rawText).toBe('res');
-
-    // Test coercion to string
-    const r4 = interpretStandardResult({ result: 123 }, defaults);
-    expect(r4.rawText).toBe('123');
-  });
-
-  it('handles non-object responses by defaulting to false and empty payload', () => {
-    const responses = ['string response', null, undefined, 42];
-
-    for (const response of responses) {
+  describe('rawText prioritization', () => {
+    it.each([
+      [{ message: 'msg', output: 'out', result: 'res' }, 'msg'],
+      [{ output: 'out', result: 'res' }, 'out'],
+      [{ result: 'res' }, 'res'],
+      [{ result: 123 }, '123'],
+    ])('maps %j to rawText %s', (response, expectedRawText) => {
       const result = interpretStandardResult(response, defaults);
-      expect(result.success).toBe(false);
-      expect(result.message).toBe(defaults.failureMessage);
-      expect(result.error).toBe(defaults.failureMessage);
-      expect(result.payload).toEqual({});
-      expect(result.raw).toBe(response);
-    }
+      expect(result.rawText).toBe(expectedRawText);
+    });
   });
 
-  it('handles arrays for warnings and details correctly', () => {
-    const response = {
-      warnings: ['warning 1', 'warning 2'],
-      details: ['detail 1'],
-    };
-
-    const result = interpretStandardResult(response, defaults);
-
-    expect(result.warnings).toEqual(['warning 1', 'warning 2']);
-    expect(result.details).toEqual(['detail 1']);
+  describe('non-object responses', () => {
+    it.each([
+      ['string response'],
+      [null],
+      [undefined],
+      [42]
+    ])('handles %j by defaulting to false and empty payload', (response) => {
+      const result = interpretStandardResult(response, defaults);
+      expect(result).toMatchObject({
+        success: false,
+        message: defaults.failureMessage,
+        error: defaults.failureMessage,
+        payload: {},
+        raw: response,
+      });
+    });
   });
 });
