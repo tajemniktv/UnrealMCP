@@ -7,16 +7,17 @@ import path from 'path';
 import fs from 'fs';
 import { findProjectContext, findPluginDescriptorByName, findPluginDescriptorByRoot, listPluginDescriptors, listTargetFiles, summarizeDescriptor } from './modding-utils.js';
 
-function validateUbtArgumentsString(extraArgs: string): void {
-  if (!extraArgs || typeof extraArgs !== 'string') {
-    return;
-  }
+function validateCommandArgs(args: string[]): void {
+  const forbiddenPattern = /[&|;<>`$\n\r]/;
+  for (const arg of args) {
+    if (typeof arg !== 'string') continue;
 
-  const forbiddenChars = ['\n', '\r', ';', '|', '`', '&&', '||', '>', '<'];
-  for (const char of forbiddenChars) {
-    if (extraArgs.includes(char)) {
+    const isForbiddenPattern = forbiddenPattern.test(arg);
+    const isCmdFlag = arg.toLowerCase() === '/c' || arg.toLowerCase() === '/k';
+
+    if (isForbiddenPattern || isCmdFlag) {
       throw new Error(
-        `UBT arguments contain forbidden character(s) and are blocked for safety. Blocked: ${JSON.stringify(char)}.`
+        `Command argument contains forbidden character(s) or switches and is blocked for safety: ${arg}`
       );
     }
   }
@@ -97,8 +98,6 @@ export async function handlePipelineTools(action: string, args: PipelineArgs, to
         throw new Error('Target is required for run_ubt');
       }
 
-      validateUbtArgumentsString(extraArgs);
-
       let ubtPath = 'UnrealBuildTool';
       const enginePath = process.env.UE_ENGINE_PATH || process.env.UNREAL_ENGINE_PATH;
 
@@ -141,6 +140,8 @@ export async function handlePipelineTools(action: string, args: PipelineArgs, to
         projectArg,
         ...extraTokens
       ];
+
+      validateCommandArgs(cmdArgs);
 
       return new Promise((resolve) => {
         const child = spawn(ubtPath, cmdArgs, { shell: false });
@@ -261,6 +262,8 @@ export async function handlePipelineTools(action: string, args: PipelineArgs, to
         `-clientconfig=${configuration}`,
         `-platform=${platform}`
       ];
+
+      validateCommandArgs(commandArgs);
 
       return new Promise((resolve) => {
         const child = spawn(runUat, commandArgs, { shell: false });
