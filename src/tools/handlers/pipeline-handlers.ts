@@ -11,7 +11,11 @@ function validateCommandArgs(args: string[]): void {
   const forbiddenPattern = /[&|;<>`$\n\r]/;
   for (const arg of args) {
     if (typeof arg !== 'string') continue;
-    if (forbiddenPattern.test(arg) || arg.toLowerCase() === '/c' || arg.toLowerCase() === '/k') {
+
+    const isForbiddenPattern = forbiddenPattern.test(arg);
+    const isCmdFlag = arg.toLowerCase() === '/c' || arg.toLowerCase() === '/k';
+
+    if (isForbiddenPattern || isCmdFlag) {
       throw new Error(
         `Command argument contains forbidden character(s) or switches and is blocked for safety: ${arg}`
       );
