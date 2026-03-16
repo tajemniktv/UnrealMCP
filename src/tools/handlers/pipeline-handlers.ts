@@ -8,7 +8,7 @@ import fs from 'fs';
 import { findProjectContext, findPluginDescriptorByName, findPluginDescriptorByRoot, listPluginDescriptors, listTargetFiles, summarizeDescriptor } from './modding-utils.js';
 
 function validateCommandArgs(args: string[]): void {
-  const forbiddenPattern = /[&|;<>`$\n\r()]/;
+  const forbiddenPattern = /[&|;<>`$\n\r]/;
   for (const arg of args) {
     if (typeof arg !== 'string') continue;
 
