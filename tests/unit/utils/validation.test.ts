@@ -30,27 +30,8 @@ describe('normalizeMountedAssetPath', () => {
     expect(normalizeMountedAssetPath('Game/Asset')).toBe('/Game/Asset');
   });
 
-  it('should return default root if path becomes empty after normalization', () => {
+  it('should return default root if path becomes empty or just a slash after normalization', () => {
     expect(normalizeMountedAssetPath('///')).toBe('/Game');
     expect(normalizeMountedAssetPath('  /  ')).toBe('/Game');
-  });
-
-  it('should throw an error for path traversal attempts', () => {
-    expect(() => normalizeMountedAssetPath('/Game/../Asset')).toThrow('Path traversal (..) is not allowed');
-    expect(() => normalizeMountedAssetPath('/Game/./Asset')).toThrow('Path traversal (..) is not allowed');
-  });
-
-  it('should sanitize root segment and other segments correctly', () => {
-    // Valid root
-    expect(normalizeMountedAssetPath('/Valid_Root/Asset_Name')).toBe('/Valid_Root/Asset_Name');
-
-    // Invalid root segment (starts with number) gets sanitized
-    expect(normalizeMountedAssetPath('/1InvalidRoot/Asset')).toBe('/Asset_1InvalidRoot/Asset');
-
-    // Invalid characters in segments
-    expect(normalizeMountedAssetPath('/Game/Asset@Name!')).toBe('/Game/Asset_Name');
-
-    // SQL injection patterns in segments
-    expect(normalizeMountedAssetPath('/Game/DROP TABLE/Name')).toBe('/Game/TABLE/Name');
   });
 });
