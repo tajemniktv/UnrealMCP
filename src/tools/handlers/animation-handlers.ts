@@ -204,13 +204,23 @@ export async function handleAnimationTools(action: string, args: HandlerArgs, to
       });
     }
     case 'create_blend_tree': {
-      // TODO: Requires C++ implementation for blend tree creation
-      return cleanObject({
-        success: false,
-        isError: true,
-        error: 'NOT_IMPLEMENTED',
-        message: 'create_blend_tree requires engine-side implementation. C++ handler needed.'
-      });
+      // Use executeAutomationRequest to pass all params including flattened axis params
+      const payload = {
+        name: mutableArgs.name,
+        path: mutableArgs.path || mutableArgs.savePath,
+        savePath: mutableArgs.savePath || mutableArgs.path,
+        skeletonPath: mutableArgs.skeletonPath,
+        horizontalAxis: mutableArgs.horizontalAxis,
+        verticalAxis: mutableArgs.verticalAxis,
+        // Pass flattened axis params for C++ handler
+        minX: mutableArgs.minX,
+        maxX: mutableArgs.maxX,
+        minY: mutableArgs.minY,
+        maxY: mutableArgs.maxY,
+        subAction: 'create_blend_tree'
+      };
+      const res = await executeAutomationRequest(tools, 'animation_physics', payload, 'Automation bridge not available for blend tree creation');
+      return cleanObject(res) as Record<string, unknown>;
     }
     case 'cleanup':
       return cleanObject(await executeAutomationRequest(tools, 'animation_physics', {

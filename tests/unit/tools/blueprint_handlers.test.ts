@@ -307,7 +307,7 @@ describe('Blueprint Handlers', () => {
           ]
       });
 
-      const result = await handleBlueprintGraph('get_connections', {
+      const result = await handleBlueprintTools('get_connections', {
           blueprintPath: '/Game/Test/BP_Test',
           graphName: 'EventGraph'
       }, tools);
