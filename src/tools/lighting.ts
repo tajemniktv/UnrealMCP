@@ -768,9 +768,7 @@ export class LightingTools {
       commands.push(`r.Lumen.MaxReflectionBounces ${params.bounces}`);
     }
 
-    for (const cmd of commands) {
-      await this.bridge.executeConsoleCommand(cmd);
-    }
+    await this.bridge.executeConsoleCommands(commands);
 
     return { success: true, message: 'Global illumination configured (console)' };
   }
@@ -823,9 +821,7 @@ export class LightingTools {
       commands.push(`r.RayTracing.Shadows ${params.rayTracedShadows ? 1 : 0}`);
     }
 
-    for (const cmd of commands) {
-      await this.bridge.executeConsoleCommand(cmd);
-    }
+    await this.bridge.executeConsoleCommands(commands);
 
     return { success: true, message: 'Shadow settings configured (console)' };
   }
@@ -1017,9 +1013,7 @@ export class LightingTools {
       commands.push(`r.EyeAdaptation.MaxBrightness ${params.maxBrightness}`);
     }
 
-    for (const cmd of commands) {
-      await this.bridge.executeConsoleCommand(cmd);
-    }
+    await this.bridge.executeConsoleCommands(commands);
 
     return { success: true, message: 'Exposure settings updated (console)' };
   }
@@ -1063,9 +1057,7 @@ export class LightingTools {
       commands.push(`r.AmbientOcclusion.Quality ${qualityValue}`);
     }
 
-    for (const cmd of commands) {
-      await this.bridge.executeConsoleCommand(cmd);
-    }
+    await this.bridge.executeConsoleCommands(commands);
 
     return { success: true, message: 'Ambient occlusion configured (console)' };
   }
