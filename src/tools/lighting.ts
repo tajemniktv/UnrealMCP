@@ -768,7 +768,9 @@ export class LightingTools {
       commands.push(`r.Lumen.MaxReflectionBounces ${params.bounces}`);
     }
 
-    await this.bridge.executeConsoleCommands(commands);
+    if (commands.length > 0) {
+      await this.bridge.executeConsoleCommands(commands);
+    }
 
     return { success: true, message: 'Global illumination configured (console)' };
   }
