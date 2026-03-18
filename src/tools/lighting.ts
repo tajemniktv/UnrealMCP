@@ -821,7 +821,9 @@ export class LightingTools {
       commands.push(`r.RayTracing.Shadows ${params.rayTracedShadows ? 1 : 0}`);
     }
 
-    await this.bridge.executeConsoleCommands(commands);
+    if (commands.length > 0) {
+      await this.bridge.executeConsoleCommands(commands);
+    }
 
     return { success: true, message: 'Shadow settings configured (console)' };
   }
